@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LeetCode2Git</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    
+    <!-- App Header -->
+    <header class="app-header">
+      <div class="brand-logo">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="16 18 22 12 16 6"></polyline>
+          <polyline points="8 6 2 12 8 18"></polyline>
+        </svg>
+      </div>
+      <div class="brand-headings">
+        <h1 class="brand-title">LeetCode<span class="accent">2Git</span></h1>
+        <p class="brand-subtitle">Sync accepted solutions to your GitHub</p>
+      </div>
+    </header>
+
+    <!-- Notification Alert Banner -->
+    <div id="statusAlert" class="status-alert hidden" role="status" aria-live="polite">
+      <span id="statusAlertText"></span>
+      <button id="closeAlertBtn" class="close-alert-btn" aria-label="Dismiss notification">&times;</button>
+    </div>
+
+    <!-- Main Content Area -->
+    <main class="popup-content">
+      
+      <!-- GitHub Connection Status Card -->
+      <section class="card status-card">
+        <div class="status-row">
+          <span class="status-label">GitHub</span>
+          <div class="status-badge-container">
+            <span id="statusIndicator" class="status-dot disconnected"></span>
+            <span id="statusText" class="status-badge disconnected">Not connected</span>
+          </div>
+        </div>
+
+        <!-- Disconnected State Section -->
+        <div id="disconnectedSection" class="auth-section">
+          <p class="connection-hint">Connect your GitHub account to automatically sync your genuine LeetCode solutions to your repository.</p>
+          <button id="connectGithubBtn" class="btn btn-github btn-block" type="button">
+            <svg class="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+            </svg>
+            Connect GitHub
+          </button>
+        </div>
+
+        <!-- Connected State Section -->
+        <div id="connectedSection" class="auth-section hidden">
+          <div class="user-profile-row">
+            <img id="userAvatar" class="user-avatar" src="" alt="Avatar" />
+            <div class="user-meta">
+              <span class="user-status-label">Connected as</span>
+              <span id="usernameDisplay" class="username-text">@username</span>
+            </div>
+            <button id="disconnectBtn" class="btn btn-outline-danger btn-sm" type="button" title="Disconnect this GitHub account">
+              Disconnect
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Repository Configuration Card -->
+      <section class="card form-card" id="repoSection">
+        <div class="form-header-row">
+          <label for="repoSelect" class="form-label">Repository</label>
+          <button id="refreshReposBtn" class="btn-icon-link" type="button" title="Refresh repositories from GitHub">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M23 4v6h-6"></path>
+              <path d="M1 20v-6h6"></path>
+              <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+            </svg>
+            <span>Refresh</span>
+          </button>
+        </div>
+
+        <!-- Dynamic Repository Dropdown for Authenticated User -->
+        <div class="select-wrapper">
+          <select id="repoSelect" class="form-select" disabled>
+            <option value="">-- Connect GitHub first --</option>
+          </select>
+        </div>
+
+        <!-- Optional Manual Entry Toggle -->
+        <div class="manual-repo-toggle">
+          <button id="toggleManualRepoBtn" class="link-btn" type="button">
+            Enter repository manually
+          </button>
+        </div>
+
+        <div id="manualRepoContainer" class="form-group hidden">
+          <input
+            type="text"
+            id="repoInput"
+            class="form-input"
+            placeholder="username/repository"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <span class="input-hint">Format: username/repository (e.g., alice/leetcode-solutions)</span>
+        </div>
+
+        <div class="repo-action-row">
+          <button id="saveRepoBtn" class="btn btn-primary btn-block" type="button" disabled>
+            Save Repository
+          </button>
+        </div>
+      </section>
+
+      <!-- Extension Settings Card -->
+      <section class="card settings-card">
+        <h2 class="section-title">Settings</h2>
+
+        <!-- Toggle: Auto Save -->
+        <div class="setting-item">
+          <div class="setting-text">
+            <span class="setting-name">Auto Save</span>
+            <span class="setting-desc">Prompt when LeetCode submission is Accepted</span>
+          </div>
+          <label class="switch-control" for="autoSaveToggle">
+            <input type="checkbox" id="autoSaveToggle" checked />
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+
+        <!-- Toggle: Create README -->
+        <div class="setting-item">
+          <div class="setting-text">
+            <span class="setting-name">Create README</span>
+            <span class="setting-desc">Include problem statement with solution</span>
+          </div>
+          <label class="switch-control" for="createReadmeToggle">
+            <input type="checkbox" id="createReadmeToggle" checked />
+            <span class="switch-slider"></span>
+          </label>
+        </div>
+      </section>
+
+      <!-- Dashboard Button -->
+      <section class="dashboard-section">
+        <button id="dashboardBtn" class="btn btn-secondary btn-block" type="button">
+          <svg class="btn-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="7" height="9"></rect>
+            <rect x="14" y="3" width="7" height="5"></rect>
+            <rect x="14" y="12" width="7" height="9"></rect>
+            <rect x="3" y="16" width="7" height="5"></rect>
+          </svg>
+          Dashboard
+        </button>
+      </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <span class="footer-meta">LeetCode2Git • Public Multi-User • v1.0.0</span>
+    </footer>
+
+  </div>
+
+  <script src="../config.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

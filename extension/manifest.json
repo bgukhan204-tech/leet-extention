@@ -1,0 +1,57 @@
+{
+  "manifest_version": 3,
+  "name": "LeetCode2Git",
+  "version": "1.0.0",
+  "description": "Automatically and genuinely save your accepted LeetCode solutions to your GitHub repository.",
+  "icons": {
+    "16": "assets/icon-16.png",
+    "48": "assets/icon-48.png",
+    "128": "assets/icon-128.png"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "LeetCode2Git",
+    "default_icon": {
+      "16": "assets/icon-16.png",
+      "48": "assets/icon-48.png",
+      "128": "assets/icon-128.png"
+    }
+  },
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "alarms"
+  ],
+  "host_permissions": [
+    "https://leetcode.com/*",
+    "https://*.leetcode.com/*",
+    "http://localhost:5000/*",
+    "http://127.0.0.1:5000/*",
+    "https://*/*"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "http://localhost:5000/*",
+      "http://127.0.0.1:5000/*",
+      "https://*.leetcodetogit.com/*",
+      "https://*.onrender.com/*",
+      "https://*.railway.app/*",
+      "https://*.vercel.app/*"
+    ]
+  },
+  "background": {
+    "service_worker": "background/background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://leetcode.com/problems/*",
+        "https://leetcode.com/explore/*"
+      ],
+      "js": ["content/leetcode.js"],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}
