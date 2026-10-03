@@ -61,6 +61,21 @@ if (config.nodeEnv === 'development') {
   app.use(morgan('dev'));
 }
 
+// Root Welcome Endpoint
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    service: 'LeetCode2Git Public Backend API',
+    status: 'online',
+    version: '1.0.0',
+    endpoints: {
+      health: '/api/health',
+      auth: '/api/auth/github',
+      docs: 'https://github.com/bgukhan204-tech/leet-extention'
+    }
+  });
+});
+
 // Health Check Endpoint
 app.get('/api/health', (req, res) => {
   res.json({
