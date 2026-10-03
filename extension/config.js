@@ -3,16 +3,11 @@
  * LeetCode2Git - Centralized Extension Configuration
  * ==============================================================================
  * Single source of truth for backend communication in both dev and production.
- *
- * PRODUCTION SETUP:
- * 1. Deploy the backend to a public HTTPS domain (e.g. https://YOUR-PUBLIC-BACKEND.com)
- * 2. Change BACKEND_URL below to your deployed domain.
  * ==============================================================================
  */
 
-// Change this single line for production deployment:
-const BACKEND_URL = 'http://localhost:5000'; // Development
-// const BACKEND_URL = 'https://YOUR-PUBLIC-BACKEND.com'; // Production
+// Production Public Backend URL on Render
+const BACKEND_URL = 'https://leetcode2git-backend.onrender.com';
 
 const CONFIG = {
   BACKEND_URL,
