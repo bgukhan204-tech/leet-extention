@@ -274,4 +274,107 @@ describe('Multi-User Public Architecture & Security Test Suite', () => {
       expect(res.body.message).toMatch(/running/i);
     });
   });
+
+  describe('5. GitHub OAuth Initiation & Extension Identity Synchronization Flow', () => {
+    const axios = require('axios');
+    const config = require('../config/config');
+
+    test('GET /api/auth/github redirects to GitHub OAuth with encoded state containing extensionId and redirectUri', async () => {
+      const origClientId = config.githubClientId;
+      config.githubClientId = 'valid_production_github_client_id_123';
+
+      const extensionId = 'abcdefghijklmnopqrstuvwxyz123456';
+      const redirectUri = `https://${extensionId}.chromiumapp.org/`;
+
+      const res = await request(app)
+        .get(`/api/auth/github?extensionId=${extensionId}&redirect_uri=${encodeURIComponent(redirectUri)}`);
+
+      config.githubClientId = origClientId;
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain('https://github.com/login/oauth/authorize');
+      
+      const authUrl = new URL(res.headers.location);
+      const state = authUrl.searchParams.get('state');
+      expect(state).toBeTruthy();
+
+      const decodedState = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'));
+      expect(decodedState.extensionId).toBe(extensionId);
+      expect(decodedState.redirectUri).toBe(redirectUri);
+    });
+
+    test('GET /api/auth/github/callback redirects to chromiumapp.org with application JWT and user payload', async () => {
+      const extensionId = 'abcdefghijklmnopqrstuvwxyz123456';
+      const redirectUri = `https://${extensionId}.chromiumapp.org/`;
+      const statePayload = {
+        nonce: 'testnonce123',
+        extensionId,
+        redirectUri
+      };
+      const state = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
+
+      jest.spyOn(axios, 'post').mockResolvedValueOnce({
+        data: { access_token: 'gho_mock_access_token_999' }
+      });
+
+      jest.spyOn(githubService, 'getUserProfile').mockResolvedValueOnce({
+        id: 10001,
+        login: 'alice',
+        name: 'Alice Developer',
+        email: 'alice@example.com',
+        avatar_url: 'https://avatars.githubusercontent.com/u/10001'
+      });
+
+      const res = await request(app)
+        .get(`/api/auth/github/callback?code=mock_oauth_code_123&state=${state}`);
+
+      expect(res.status).toBe(302);
+      expect(res.headers.location).toContain(`https://${extensionId}.chromiumapp.org/`);
+
+      const redirectLocation = new URL(res.headers.location);
+      const jwtToken = redirectLocation.searchParams.get('jwtToken');
+      const userStr = redirectLocation.searchParams.get('user');
+
+      expect(jwtToken).toBeTruthy();
+      expect(userStr).toBeTruthy();
+
+      const decodedJwt = jwt.decode(jwtToken);
+      expect(decodedJwt.githubUsername).toBe('alice');
+      // Raw token must never be in JWT
+      expect(decodedJwt.githubAccessToken).toBeUndefined();
+
+      const parsedUser = JSON.parse(userStr);
+      expect(parsedUser.githubUsername).toBe('alice');
+      expect(parsedUser.githubAccessToken).toBeUndefined();
+    });
+
+    test('GET /api/auth/github/callback renders HTML completion page when redirectUri is not present', async () => {
+      const statePayload = {
+        nonce: 'testnonce456',
+        extensionId: 'abcdefghijklmnopqrstuvwxyz123456'
+      };
+      const state = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
+
+      jest.spyOn(axios, 'post').mockResolvedValueOnce({
+        data: { access_token: 'gho_mock_access_token_888' }
+      });
+
+      jest.spyOn(githubService, 'getUserProfile').mockResolvedValueOnce({
+        id: 10002,
+        login: 'bob',
+        name: 'Bob Programmer',
+        email: 'bob@example.com',
+        avatar_url: 'https://avatars.githubusercontent.com/u/10002'
+      });
+
+      const res = await request(app)
+        .get(`/api/auth/github/callback?code=mock_oauth_code_456&state=${state}`);
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('✓ GitHub Connected');
+      expect(res.text).toContain('@bob');
+      expect(res.text).toContain('chrome.runtime.sendMessage');
+      expect(res.text).toContain('targetExtensionId');
+    });
+  });
 });

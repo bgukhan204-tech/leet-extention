@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const githubService = require('../services/githubService');
+const userService = require('../services/userService');
 const User = require('../models/User');
 
 /**
@@ -11,8 +12,8 @@ async function getGithubUser(req, res, next) {
     res.json({
       success: true,
       user: {
-        id: user._id ? user._id.toString() : user.id,
-        githubId: user.githubId,
+        id: user._id ? user._id.toString() : (user.id || String(user.githubId)),
+        githubId: String(user.githubId || ''),
         username: user.githubUsername,
         githubUsername: user.githubUsername,
         name: user.name || '',
@@ -34,6 +35,7 @@ async function getRepositories(req, res, next) {
   try {
     const token = req.user.githubAccessToken;
     if (!token) {
+      console.warn(`[GitHub Controller] Missing GitHub access token for user: @${req.user.githubUsername}`);
       return res.status(401).json({
         success: false,
         message: 'GitHub account is not connected. Please reconnect your account.'
@@ -128,17 +130,9 @@ async function setRepository(req, res, next) {
 
     const targetBranch = branch || validation.defaultBranch || 'main';
 
-    // 2. Persist in database for the authenticated user (if DB connection is active)
-    if (req.user._id && mongoose.connection.readyState === 1) {
-      try {
-        await User.findByIdAndUpdate(req.user._id, {
-          selectedRepository: repository,
-          selectedBranch: targetBranch
-        });
-      } catch (dbErr) {
-        console.warn('[GitHub Controller] User repository DB update error:', dbErr.message);
-      }
-    }
+    // 2. Persist in database and user store
+    const userIdentifier = req.user._id ? String(req.user._id) : String(req.user.githubId || req.user.id);
+    await userService.updateRepository(userIdentifier, repository, targetBranch);
 
     req.user.selectedRepository = repository;
     req.user.selectedBranch = targetBranch;

@@ -21,7 +21,9 @@
     "storage",
     "activeTab",
     "scripting",
-    "alarms"
+    "alarms",
+    "identity",
+    "tabs"
   ],
   "host_permissions": [
     "https://leetcode.com/*",
@@ -34,6 +36,7 @@
     "matches": [
       "http://localhost:5000/*",
       "http://127.0.0.1:5000/*",
+      "https://leetcode2git-backend.onrender.com/*",
       "https://*.leetcodetogit.com/*",
       "https://*.onrender.com/*",
       "https://*.railway.app/*",
@@ -51,6 +54,15 @@
       ],
       "js": ["content/leetcode.js"],
       "css": ["content/content.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://leetcode2git-backend.onrender.com/*",
+        "http://localhost:5000/*",
+        "http://127.0.0.1:5000/*"
+      ],
+      "js": ["content/authCallback.js"],
       "run_at": "document_idle"
     }
   ]

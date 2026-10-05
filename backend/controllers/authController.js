@@ -2,6 +2,7 @@ const axios = require('axios');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const githubService = require('../services/githubService');
+const userService = require('../services/userService');
 const config = require('../config/config');
 
 /**
@@ -9,10 +10,11 @@ const config = require('../config/config');
  * SECURITY: Raw githubAccessToken is NEVER included in JWT payload.
  */
 function generateJwt(user) {
-  const userId = user._id ? user._id.toString() : user.id;
+  const userId = user._id ? user._id.toString() : (user.id || String(user.githubId));
   return jwt.sign(
     {
       userId,
+      githubId: String(user.githubId || userId),
       githubUsername: user.githubUsername,
       name: user.name || '',
       avatarUrl: user.avatarUrl || ''
@@ -27,8 +29,8 @@ function generateJwt(user) {
  */
 function sanitizeUser(user) {
   return {
-    id: user._id ? user._id.toString() : user.id,
-    githubId: user.githubId,
+    id: user._id ? user._id.toString() : (user.id || String(user.githubId)),
+    githubId: String(user.githubId || ''),
     githubUsername: user.githubUsername,
     name: user.name || '',
     email: user.email || '',
@@ -161,20 +163,22 @@ async function initiateGithubOAuth(req, res) {
     `);
   }
 
-  // Parse extensionId from query if provided to return token back to the extension
+  // Parse extensionId and redirectUri from query if provided to return token back to the extension
   const extensionId = req.query.extensionId || '';
+  const redirectUri = req.query.redirect_uri || req.query.redirectUri || '';
   const statePayload = {
     nonce: Math.random().toString(36).substring(2, 15),
-    extensionId
+    extensionId,
+    redirectUri
   };
   const state = Buffer.from(JSON.stringify(statePayload)).toString('base64url');
 
-  const redirectUri = config.githubCallbackUrl;
+  const githubRedirectUri = config.githubCallbackUrl;
   const scope = 'repo read:user';
 
   const authUrl = `https://github.com/login/oauth/authorize?client_id=${encodeURIComponent(
     config.githubClientId
-  )}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent(
+  )}&redirect_uri=${encodeURIComponent(githubRedirectUri)}&scope=${encodeURIComponent(
     scope
   )}&state=${encodeURIComponent(state)}`;
 
@@ -212,13 +216,15 @@ async function handleGithubCallback(req, res) {
     `);
   }
 
-  // Extract extensionId from state payload if present
+  // Extract extensionId and redirectUri from state payload if present
   let extensionId = '';
+  let redirectUri = '';
   if (state) {
     try {
       const decodedState = JSON.parse(Buffer.from(state, 'base64url').toString('utf8'));
-      if (decodedState && decodedState.extensionId) {
-        extensionId = decodedState.extensionId;
+      if (decodedState) {
+        if (decodedState.extensionId) extensionId = decodedState.extensionId;
+        if (decodedState.redirectUri) redirectUri = decodedState.redirectUri;
       }
     } catch (e) {
       // Non-JSON state string fallback
@@ -247,43 +253,36 @@ async function handleGithubCallback(req, res) {
     // 2. Fetch authenticated user profile from GitHub API
     const ghUser = await githubService.getUserProfile(accessToken);
 
-    // 3. Upsert user in MongoDB (stores GitHub token securely on backend)
-    let user;
-    try {
-      user = await User.findOneAndUpdate(
-        { githubId: String(ghUser.id) },
-        {
-          githubId: String(ghUser.id),
-          githubUsername: ghUser.login,
-          name: ghUser.name || ghUser.login,
-          email: ghUser.email || '',
-          avatarUrl: ghUser.avatar_url || '',
-          githubAccessToken: accessToken
-        },
-        { upsert: true, new: true, setDefaultsOnInsert: true }
-      );
-    } catch (dbErr) {
-      console.warn('[OAuth] MongoDB upsert fallback:', dbErr.message);
-      user = {
-        _id: String(ghUser.id),
-        id: String(ghUser.id),
-        githubId: String(ghUser.id),
-        githubUsername: ghUser.login,
-        name: ghUser.name || ghUser.login,
-        email: ghUser.email || '',
-        avatarUrl: ghUser.avatar_url || '',
-        githubAccessToken: accessToken,
-        selectedRepository: '',
-        selectedBranch: 'main',
-        autoSave: true
-      };
-    }
+    // 3. Upsert user in database and persistence store
+    const user = await userService.upsertUser({
+      githubId: String(ghUser.id),
+      githubUsername: ghUser.login,
+      name: ghUser.name || ghUser.login,
+      email: ghUser.email || '',
+      avatarUrl: ghUser.avatar_url || '',
+      githubAccessToken: accessToken
+    });
+
+    console.log(`[OAuth] GitHub authentication successful for user: @${user.githubUsername}`);
 
     // 4. Generate JWT (WITHOUT the raw GitHub access token)
     const jwtToken = generateJwt(user);
     const safeUser = sanitizeUser(user);
 
-    // 5. Render completion screen that securely transmits JWT to Chrome Extension
+    // 5. If a Chrome Extension redirect URI is present (e.g. chromiumapp.org), redirect directly to extension identity flow
+    if (redirectUri && redirectUri.includes('chromiumapp.org')) {
+      try {
+        const targetUrl = new URL(redirectUri);
+        targetUrl.searchParams.set('jwtToken', jwtToken);
+        targetUrl.searchParams.set('token', jwtToken);
+        targetUrl.searchParams.set('user', JSON.stringify(safeUser));
+        return res.redirect(targetUrl.toString());
+      } catch (urlErr) {
+        console.warn('[OAuth] Invalid redirectUri URL:', redirectUri);
+      }
+    }
+
+    // 6. Otherwise, render completion screen that securely transmits JWT to Chrome Extension
     res.send(`
       <!DOCTYPE html>
       <html lang="en">
@@ -337,6 +336,16 @@ async function handleGithubCallback(req, res) {
             color: #c9d1d9;
             margin-bottom: 16px;
           }
+          .sync-status {
+            font-size: 13px;
+            color: #58a6ff;
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 8px 12px;
+            margin-bottom: 16px;
+            display: inline-block;
+          }
           .hint {
             font-size: 14px;
             color: #8b949e;
@@ -366,58 +375,67 @@ async function handleGithubCallback(req, res) {
           <img class="avatar" src="${safeUser.avatarUrl || 'https://github.com/identicons/app.png'}" alt="Avatar" />
           <div class="title">✓ GitHub Connected</div>
           <div class="user-name">Welcome, <strong>@${safeUser.githubUsername}</strong></div>
+          <div id="syncNotice" class="sync-status">⚡ Syncing session with LeetCode2Git extension...</div>
           <p class="hint">Your GitHub account is connected. You can now select your repository in the extension popup and start solving LeetCode problems!</p>
           <button class="btn" id="closeBtn" onclick="window.close()">Close Window</button>
         </div>
 
+        <!-- Secure DOM payload for LeetCode2Git Content Script Bridge -->
+        <div id="leetcode2git-auth-payload"
+             data-token="${jwtToken}"
+             data-user='${JSON.stringify(safeUser).replace(/'/g, "&#39;")}'
+             style="display:none;"></div>
+
         <script>
-          const authData = {
+          window.authData = {
             jwtToken: "${jwtToken}",
             user: ${JSON.stringify(safeUser)}
           };
 
           const targetExtensionId = "${extensionId}";
 
-          // 1. Direct message to target extension ID if available
-          if (targetExtensionId && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+          function notifyExtension() {
+            // 1. LocalStorage bridge
             try {
-              chrome.runtime.sendMessage(targetExtensionId, {
-                type: 'AUTH_SUCCESS',
-                data: authData
-              }, (response) => {
-                if (chrome.runtime.lastError) {
-                  console.log('Extension message notice:', chrome.runtime.lastError.message);
-                }
-              });
-            } catch (e) {
-              console.log('Direct extension dispatch notice:', e);
+              localStorage.setItem('leetcode2git_auth', JSON.stringify(window.authData));
+            } catch (e) {}
+
+            // 2. Direct message to target extension ID if available
+            if (targetExtensionId && typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+              try {
+                chrome.runtime.sendMessage(targetExtensionId, {
+                  type: 'AUTH_SUCCESS',
+                  data: window.authData
+                }, (response) => {
+                  if (chrome.runtime.lastError) {
+                    console.log('Extension message notice:', chrome.runtime.lastError.message);
+                  } else {
+                    const syncNotice = document.getElementById('syncNotice');
+                    if (syncNotice) {
+                      syncNotice.textContent = '✓ Synchronized with Chrome Extension';
+                      syncNotice.style.color = '#7ee787';
+                    }
+                  }
+                });
+              } catch (e) {
+                console.log('Direct extension dispatch notice:', e);
+              }
+            }
+
+            // 3. PostMessage to opener if opened in a popup window
+            if (window.opener) {
+              try {
+                window.opener.postMessage({
+                  type: 'LEETCODE2GIT_AUTH_SUCCESS',
+                  authData: window.authData
+                }, '*');
+              } catch (e) {}
             }
           }
 
-          // 2. Generic extension broadcast if in extension context
-          if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
-            try {
-              chrome.runtime.sendMessage({
-                type: 'SAVE_AUTH_DATA',
-                data: authData
-              });
-            } catch (e) {}
-          }
-
-          // 3. PostMessage to opener if opened in a popup window
-          if (window.opener) {
-            try {
-              window.opener.postMessage({
-                type: 'LEETCODE2GIT_AUTH_SUCCESS',
-                authData
-              }, '*');
-            } catch (e) {}
-          }
-
-          // 4. LocalStorage bridge
-          try {
-            localStorage.setItem('leetcode2git_auth', JSON.stringify(authData));
-          } catch (e) {}
+          notifyExtension();
+          setTimeout(notifyExtension, 500);
+          setTimeout(notifyExtension, 1500);
         </script>
       </body>
       </html>

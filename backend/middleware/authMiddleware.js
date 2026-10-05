@@ -1,6 +1,5 @@
 const jwt = require('jsonwebtoken');
-const mongoose = require('mongoose');
-const User = require('../models/User');
+const userService = require('../services/userService');
 const config = require('../config/config');
 
 /**
@@ -11,6 +10,7 @@ async function authMiddleware(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      console.warn('[Auth Middleware] Request missing Bearer authorization header');
       return res.status(401).json({
         success: false,
         message: 'GitHub account is not connected. Please connect your GitHub account.'
@@ -18,40 +18,42 @@ async function authMiddleware(req, res, next) {
     }
 
     const token = authHeader.split(' ')[1];
-    let decoded;
+    if (!token || token === 'undefined' || token === 'null') {
+      console.warn('[Auth Middleware] Bearer token is empty or invalid string');
+      return res.status(401).json({
+        success: false,
+        message: 'GitHub account is not connected. Please connect your GitHub account.'
+      });
+    }
 
+    let decoded;
     try {
       decoded = jwt.verify(token, config.jwtSecret);
     } catch (err) {
+      console.warn(`[Auth Middleware] JWT verification failed: ${err.message}`);
       return res.status(401).json({
         success: false,
         message: 'Your GitHub authorization has expired. Please reconnect your GitHub account.'
       });
     }
 
-    if (!decoded || !decoded.userId) {
+    if (!decoded || (!decoded.userId && !decoded.githubId && !decoded.githubUsername)) {
+      console.warn('[Auth Middleware] Decoded JWT missing user identifier');
       return res.status(401).json({
         success: false,
         message: 'Invalid session token. Please reconnect your GitHub account.'
       });
     }
 
-    // Retrieve user from MongoDB by userId (only if database connection is active)
-    let user = null;
-    if (mongoose.connection.readyState === 1) {
-      try {
-        user = await User.findById(decoded.userId);
-      } catch (dbErr) {
-        console.warn('[Auth Middleware] Database lookup error:', dbErr.message);
-      }
-    }
-
-    // In-memory fallback support for testing environments if database is offline
-    if (!user && req.app.locals.mockUsers && req.app.locals.mockUsers[decoded.userId]) {
-      user = req.app.locals.mockUsers[decoded.userId];
-    }
+    // Retrieve user via userService (supports MongoDB ObjectId, githubId, username, and in-memory cache)
+    const user = await userService.findUser(
+      decoded.userId || decoded.githubId,
+      decoded.githubUsername,
+      req.app ? req.app.locals : null
+    );
 
     if (!user) {
+      console.warn(`[Auth Middleware] User account not found for ID: ${decoded.userId || decoded.githubId || 'unknown'}`);
       return res.status(401).json({
         success: false,
         message: 'User account not found. Please connect your GitHub account.'
@@ -59,6 +61,7 @@ async function authMiddleware(req, res, next) {
     }
 
     if (!user.githubAccessToken) {
+      console.warn(`[Auth Middleware] Missing GitHub access token for user: @${user.githubUsername}`);
       return res.status(401).json({
         success: false,
         message: 'GitHub account is not connected or token is missing. Please reconnect.'

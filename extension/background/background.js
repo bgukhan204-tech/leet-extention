@@ -37,20 +37,26 @@ chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => 
   if (request.type === 'AUTH_SUCCESS' && request.data) {
     const { jwtToken, user } = request.data;
 
-    chrome.storage.local.set({
-      jwtToken,
-      githubUser: user,
-      isLoggedIn: true,
-      githubUsername: user.githubUsername,
-      selectedRepository: user.selectedRepository || '',
-      selectedBranch: user.selectedBranch || 'main'
-    }, () => {
-      updateBadge('✓', '#238636');
-      setTimeout(() => clearBadge(), 4000);
-      sendResponse({ success: true, message: 'Authentication saved in extension storage.' });
-    });
+    if (jwtToken) {
+      const username = (user && (user.githubUsername || user.username)) || '';
+      const selectedRepo = (user && user.selectedRepository) || '';
+      const selectedBranch = (user && user.selectedBranch) || 'main';
 
-    return true; // Keep async channel open
+      chrome.storage.local.set({
+        jwtToken,
+        githubUser: user || { githubUsername: username },
+        isLoggedIn: true,
+        githubUsername: username,
+        selectedRepository: selectedRepo,
+        selectedBranch: selectedBranch
+      }, () => {
+        updateBadge('✓', '#238636');
+        setTimeout(() => clearBadge(), 4000);
+        sendResponse({ success: true, message: 'Authentication saved in extension storage.' });
+      });
+
+      return true; // Keep async channel open
+    }
   }
 });
 
@@ -73,14 +79,68 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
             'isLoggedIn'
           ]);
 
-          const isAuthenticated = Boolean(data.jwtToken && data.githubUser);
+          let token = data.jwtToken;
+          let user = data.githubUser;
+
+          if (token) {
+            try {
+              const res = await fetch(`${API_BASE_URL}/github/user`, {
+                method: 'GET',
+                headers: {
+                  'Authorization': `Bearer ${token}`,
+                  'Accept': 'application/json'
+                }
+              });
+
+              if (res.status === 401) {
+                // Session expired or invalid on backend -> clear local storage
+                await chrome.storage.local.remove([
+                  'jwtToken',
+                  'githubUser',
+                  'githubUsername',
+                  'selectedRepository',
+                  'selectedBranch',
+                  'isLoggedIn',
+                  'cachedRepositories'
+                ]);
+                sendResponse({
+                  isAuthenticated: false,
+                  user: null,
+                  username: '',
+                  repository: '',
+                  branch: 'main',
+                  autoSave: data.autoSave !== false,
+                  createReadme: data.createReadme !== false
+                });
+                break;
+              }
+
+              if (res.ok) {
+                const result = await res.json();
+                if (result && result.success && result.user) {
+                  user = result.user;
+                  await chrome.storage.local.set({
+                    githubUser: user,
+                    githubUsername: user.githubUsername || user.username || data.githubUsername,
+                    selectedRepository: user.selectedRepository || data.selectedRepository || '',
+                    selectedBranch: user.selectedBranch || data.selectedBranch || 'main',
+                    isLoggedIn: true
+                  });
+                }
+              }
+            } catch (netErr) {
+              console.warn('[LeetCode2Git] Background verification network notice:', netErr.message);
+            }
+          }
+
+          const isAuthenticated = Boolean(token && user);
 
           sendResponse({
             isAuthenticated,
-            user: data.githubUser || null,
-            username: data.githubUsername || (data.githubUser ? data.githubUser.githubUsername : ''),
-            repository: data.selectedRepository || (data.githubUser ? data.githubUser.selectedRepository : '') || '',
-            branch: data.selectedBranch || 'main',
+            user: user || null,
+            username: user ? (user.githubUsername || user.username) : (data.githubUsername || ''),
+            repository: data.selectedRepository || (user ? user.selectedRepository : '') || '',
+            branch: data.selectedBranch || (user ? user.selectedBranch : '') || 'main',
             autoSave: data.autoSave !== false,
             createReadme: data.createReadme !== false
           });
@@ -89,9 +149,111 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         case 'LOGIN_GITHUB': {
           const extensionId = chrome.runtime.id;
-          const authUrlWithExtension = `${AUTH_URL}?extensionId=${encodeURIComponent(extensionId)}`;
-          await chrome.tabs.create({ url: authUrlWithExtension });
-          sendResponse({ success: true });
+          let redirectUri = '';
+
+          if (chrome.identity && typeof chrome.identity.getRedirectURL === 'function') {
+            try {
+              redirectUri = chrome.identity.getRedirectURL();
+            } catch (e) {
+              console.warn('[LeetCode2Git] getRedirectURL error:', e);
+            }
+          }
+
+          const authParams = new URLSearchParams();
+          authParams.set('extensionId', extensionId);
+          if (redirectUri) {
+            authParams.set('redirect_uri', redirectUri);
+          }
+
+          const fullAuthUrl = `${AUTH_URL}?${authParams.toString()}`;
+
+          // Primary: Launch web auth flow if identity API is available
+          if (chrome.identity && typeof chrome.identity.launchWebAuthFlow === 'function' && redirectUri) {
+            try {
+              const responseUrl = await new Promise((resolve, reject) => {
+                chrome.identity.launchWebAuthFlow(
+                  {
+                    url: fullAuthUrl,
+                    interactive: true
+                  },
+                  (redirectResult) => {
+                    if (chrome.runtime.lastError) {
+                      return reject(new Error(chrome.runtime.lastError.message));
+                    }
+                    if (!redirectResult) {
+                      return reject(new Error('Authentication was cancelled.'));
+                    }
+                    resolve(redirectResult);
+                  }
+                );
+              });
+
+              const url = new URL(responseUrl);
+              const jwtToken = url.searchParams.get('jwtToken') || url.searchParams.get('token');
+              const userParam = url.searchParams.get('user');
+              let user = null;
+
+              if (userParam) {
+                try {
+                  user = JSON.parse(decodeURIComponent(userParam));
+                } catch (e) {
+                  try {
+                    user = JSON.parse(userParam);
+                  } catch (e2) {}
+                }
+              }
+
+              if (jwtToken) {
+                if (!user || !user.githubUsername) {
+                  try {
+                    const userRes = await fetch(`${API_BASE_URL}/github/user`, {
+                      headers: { 'Authorization': `Bearer ${jwtToken}` }
+                    });
+                    if (userRes.ok) {
+                      const userData = await userRes.json();
+                      if (userData && userData.user) {
+                        user = userData.user;
+                      }
+                    }
+                  } catch (fetchErr) {
+                    console.warn('[LeetCode2Git] Error fetching user profile:', fetchErr);
+                  }
+                }
+
+                const username = (user && (user.githubUsername || user.username)) || '';
+                const selectedRepo = (user && user.selectedRepository) || '';
+                const selectedBranch = (user && user.selectedBranch) || 'main';
+
+                await chrome.storage.local.set({
+                  jwtToken,
+                  githubUser: user || { githubUsername: username },
+                  githubUsername: username,
+                  isLoggedIn: true,
+                  selectedRepository: selectedRepo,
+                  selectedBranch: selectedBranch
+                });
+
+                await updateBadge('✓', '#238636');
+                setTimeout(() => clearBadge(), 4000);
+
+                sendResponse({
+                  success: true,
+                  jwtToken,
+                  user: user || { githubUsername: username }
+                });
+                break;
+              }
+            } catch (identityErr) {
+              console.warn('[LeetCode2Git] launchWebAuthFlow notice, falling back to tab:', identityErr.message);
+              await chrome.tabs.create({ url: fullAuthUrl });
+              sendResponse({ success: true, fallback: true });
+              break;
+            }
+          }
+
+          // Fallback: Open tab
+          await chrome.tabs.create({ url: fullAuthUrl });
+          sendResponse({ success: true, fallback: true });
           break;
         }
 
@@ -112,18 +274,43 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         }
 
         case 'SAVE_AUTH_DATA': {
-          if (request.data && request.data.jwtToken && request.data.user) {
+          if (request.data && (request.data.jwtToken || request.data.token)) {
+            const jwtToken = request.data.jwtToken || request.data.token;
+            let user = request.data.user || null;
+
+            // If user data is missing or incomplete, fetch verified profile from backend
+            if (!user || !user.githubUsername) {
+              try {
+                const userRes = await fetch(`${API_BASE_URL}/github/user`, {
+                  headers: { 'Authorization': `Bearer ${jwtToken}` }
+                });
+                if (userRes.ok) {
+                  const userData = await userRes.json();
+                  if (userData && userData.user) {
+                    user = userData.user;
+                  }
+                }
+              } catch (fetchErr) {
+                console.warn('[LeetCode2Git] Error fetching user profile in SAVE_AUTH_DATA:', fetchErr);
+              }
+            }
+
+            const username = (user && (user.githubUsername || user.username)) || '';
+            const selectedRepo = (user && user.selectedRepository) || '';
+            const selectedBranch = (user && user.selectedBranch) || 'main';
+
             await chrome.storage.local.set({
-              jwtToken: request.data.jwtToken,
-              githubUser: request.data.user,
-              githubUsername: request.data.user.githubUsername,
+              jwtToken,
+              githubUser: user || { githubUsername: username },
+              githubUsername: username,
               isLoggedIn: true,
-              selectedRepository: request.data.user.selectedRepository || '',
-              selectedBranch: request.data.user.selectedBranch || 'main'
+              selectedRepository: selectedRepo,
+              selectedBranch: selectedBranch
             });
+
             await updateBadge('✓', '#238636');
-            setTimeout(() => clearBadge(), 3000);
-            sendResponse({ success: true });
+            setTimeout(() => clearBadge(), 4000);
+            sendResponse({ success: true, user: user || { githubUsername: username } });
           } else {
             sendResponse({ success: false, error: 'Invalid auth payload.' });
           }

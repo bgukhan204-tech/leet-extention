@@ -80,12 +80,12 @@ function setupEventListeners() {
 }
 
 /**
- * Real-time storage listener to sync popup if authentication completes in browser
+ * Real-time storage listener to sync popup if authentication completes in browser or background
  */
 function listenForStorageUpdates() {
   chrome.storage.onChanged.addListener((changes, areaName) => {
     if (areaName === 'local') {
-      if (changes.jwtToken || changes.githubUser || changes.selectedRepository) {
+      if (changes.jwtToken || changes.githubUser || changes.selectedRepository || changes.isLoggedIn) {
         refreshPopupState();
       }
     }
@@ -101,6 +101,24 @@ function listenForStorageUpdates() {
  */
 async function refreshPopupState() {
   try {
+    // 1. Instant local storage render to avoid UI flicker
+    const localData = await chrome.storage.local.get([
+      'jwtToken',
+      'githubUser',
+      'selectedRepository',
+      'autoSave',
+      'createReadme',
+      'isLoggedIn'
+    ]);
+
+    if (localData.autoSave !== undefined) autoSaveToggle.checked = localData.autoSave !== false;
+    if (localData.createReadme !== undefined) createReadmeToggle.checked = localData.createReadme !== false;
+
+    if (localData.jwtToken && localData.githubUser) {
+      renderConnectedState(localData.githubUser, localData.selectedRepository);
+    }
+
+    // 2. Query background worker for backend session verification
     chrome.runtime.sendMessage({ type: 'GET_AUTH_STATUS' }, async (response) => {
       if (chrome.runtime.lastError) {
         console.warn('[Popup] Could not query background worker:', chrome.runtime.lastError.message);
@@ -109,11 +127,11 @@ async function refreshPopupState() {
 
       if (!response) return;
 
-      // 1. Sync Settings Toggles
+      // Sync Settings Toggles
       autoSaveToggle.checked = response.autoSave !== false;
       createReadmeToggle.checked = response.createReadme !== false;
 
-      // 2. Render Auth State
+      // Render Verified Auth State
       if (response.isAuthenticated && response.user) {
         renderConnectedState(response.user, response.repository);
       } else {
@@ -154,7 +172,8 @@ async function renderConnectedState(user, selectedRepo) {
   connectedSection.classList.remove('hidden');
 
   // Populate User Profile
-  usernameDisplay.textContent = `@${user.githubUsername}`;
+  const username = user.githubUsername || user.username || '';
+  usernameDisplay.textContent = `@${username}`;
   if (user.avatarUrl) {
     userAvatar.src = user.avatarUrl;
     userAvatar.style.display = 'block';
@@ -252,6 +271,14 @@ function handleConnectGithub() {
   chrome.runtime.sendMessage({ type: 'LOGIN_GITHUB' }, (res) => {
     if (chrome.runtime.lastError) {
       showAlert('Unable to connect to LeetCode2Git server. Please try again.', 'error');
+      return;
+    }
+
+    if (res && res.success && !res.fallback) {
+      showAlert('GitHub connected successfully!', 'success');
+      refreshPopupState();
+    } else if (res && res.fallback) {
+      showAlert('Please complete authorization in the opened browser tab.', 'info');
     }
   });
 }
