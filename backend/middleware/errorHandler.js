@@ -2,9 +2,11 @@
  * Central Error Handler Middleware
  */
 function errorHandler(err, req, res, next) {
-  console.error('[Server Error]:', err.stack || err.message);
+  if (process.env.NODE_ENV !== 'test') {
+    console.error('[Server Error]:', err.stack || err.message);
+  }
 
-  const statusCode = res.statusCode === 200 ? 500 : res.statusCode;
+  const statusCode = err.status || err.statusCode || (res.statusCode === 200 ? 500 : res.statusCode);
 
   res.status(statusCode).json({
     success: false,

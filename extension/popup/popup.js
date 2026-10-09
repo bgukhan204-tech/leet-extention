@@ -232,9 +232,11 @@ function populateRepoDropdown(repositories, selectedRepo) {
   defaultOption.textContent = '-- Select Repository --';
   repoSelect.appendChild(defaultOption);
 
+  const list = Array.isArray(repositories) ? repositories : [];
   let hasSelectedMatch = false;
 
-  repositories.forEach((repo) => {
+  list.forEach((repo) => {
+    if (!repo || !repo.fullName) return;
     const opt = document.createElement('option');
     opt.value = repo.fullName;
     opt.textContent = `${repo.fullName} ${repo.private ? '🔒' : ''}`;
@@ -263,11 +265,30 @@ function populateRepoDropdown(repositories, selectedRepo) {
 // 3. Action Handlers
 // ==============================================================================
 
+let authPollInterval = null;
+
 /**
  * Connect GitHub OAuth Flow
  */
 function handleConnectGithub() {
   showAlert('Opening GitHub authorization window...', 'info');
+
+  if (authPollInterval) clearInterval(authPollInterval);
+  let pollAttempts = 0;
+  authPollInterval = setInterval(async () => {
+    pollAttempts++;
+    if (pollAttempts > 45) {
+      clearInterval(authPollInterval);
+      return;
+    }
+    const data = await chrome.storage.local.get(['jwtToken', 'githubUser']);
+    if (data.jwtToken) {
+      clearInterval(authPollInterval);
+      showAlert('GitHub connected successfully!', 'success');
+      await refreshPopupState();
+    }
+  }, 1200);
+
   chrome.runtime.sendMessage({ type: 'LOGIN_GITHUB' }, (res) => {
     if (chrome.runtime.lastError) {
       showAlert('Unable to connect to LeetCode2Git server. Please try again.', 'error');
@@ -275,6 +296,7 @@ function handleConnectGithub() {
     }
 
     if (res && res.success && !res.fallback) {
+      if (authPollInterval) clearInterval(authPollInterval);
       showAlert('GitHub connected successfully!', 'success');
       refreshPopupState();
     } else if (res && res.fallback) {
@@ -325,7 +347,8 @@ function handleRefreshRepositories() {
     if (res && res.success) {
       chrome.storage.local.get(['selectedRepository'], (data) => {
         populateRepoDropdown(res.repositories, data.selectedRepository || '');
-        showAlert(`Loaded ${res.repositories.length} repositories.`, 'success');
+        const count = Array.isArray(res.repositories) ? res.repositories.length : 0;
+        showAlert(`Loaded ${count} repositories.`, 'success');
       });
     } else {
       showAlert(res?.error || 'Unable to load your GitHub repositories.', 'error');
@@ -350,9 +373,16 @@ function handleSaveRepository() {
     return;
   }
 
+  // Support full GitHub URLs (e.g., https://github.com/owner/repo or github.com/owner/repo)
+  let cleanedRepo = repoValue.trim().replace(/\/+$/, '');
+  const urlMatch = cleanedRepo.match(/github\.com\/([^\/]+\/[^\/]+)/i);
+  if (urlMatch) {
+    cleanedRepo = urlMatch[1];
+  }
+
   // Validate format: owner/repo
   const repoPattern = /^[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+$/;
-  if (!repoPattern.test(repoValue) || repoValue.includes('http://') || repoValue.includes('https://')) {
+  if (!repoPattern.test(cleanedRepo) || cleanedRepo.includes('http://') || cleanedRepo.includes('https://')) {
     showAlert('Invalid format. Please use username/repository (e.g., alice/leetcode-solutions).', 'error');
     return;
   }
@@ -363,7 +393,7 @@ function handleSaveRepository() {
   chrome.runtime.sendMessage(
     {
       type: 'SET_REPOSITORY',
-      repository: repoValue,
+      repository: cleanedRepo,
       branch: 'main'
     },
     (res) => {
@@ -371,8 +401,8 @@ function handleSaveRepository() {
       saveRepoBtn.textContent = 'Save Repository';
 
       if (res && res.success) {
-        showAlert(`Repository saved: ${repoValue}`, 'success');
-        repoInput.value = repoValue;
+        showAlert(`Repository saved: ${cleanedRepo}`, 'success');
+        repoInput.value = cleanedRepo;
       } else {
         showAlert(res?.error || "This repository cannot be used because you don't have write access.", 'error');
       }

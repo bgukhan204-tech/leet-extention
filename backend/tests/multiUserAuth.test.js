@@ -376,5 +376,44 @@ describe('Multi-User Public Architecture & Security Test Suite', () => {
       expect(res.text).toContain('chrome.runtime.sendMessage');
       expect(res.text).toContain('targetExtensionId');
     });
+
+    test('GET /api/auth/dev-callback creates and authenticates test account with JWT payload', async () => {
+      const res = await request(app).get('/api/auth/dev-callback');
+
+      expect(res.status).toBe(200);
+      expect(res.text).toContain('✓ Dev Account Connected');
+      expect(res.text).toContain('@dev-tester');
+      expect(res.text).toContain('leetcode2git-auth-payload');
+    });
+  });
+
+  describe('6. User Preference Preservation on Re-Login', () => {
+    const userService = require('../services/userService');
+
+    test('upsertUser preserves selectedRepository across multiple logins', async () => {
+      // 1. Initial login with repository configuration
+      const firstLogin = await userService.upsertUser({
+        githubId: '88888',
+        githubUsername: 'charlie',
+        name: 'Charlie Test',
+        githubAccessToken: 'token_1',
+        selectedRepository: 'charlie/my-leetcode-repo',
+        selectedBranch: 'main'
+      });
+
+      expect(firstLogin.selectedRepository).toBe('charlie/my-leetcode-repo');
+
+      // 2. Subsequent OAuth login (where GitHub does not send selectedRepository)
+      const secondLogin = await userService.upsertUser({
+        githubId: '88888',
+        githubUsername: 'charlie',
+        name: 'Charlie Test',
+        githubAccessToken: 'token_2_refreshed'
+      });
+
+      // Must NOT be overwritten with empty string
+      expect(secondLogin.selectedRepository).toBe('charlie/my-leetcode-repo');
+      expect(secondLogin.selectedBranch).toBe('main');
+    });
   });
 });

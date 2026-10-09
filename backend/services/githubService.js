@@ -93,8 +93,9 @@ async function validateRepository(token, owner, repo) {
  */
 async function checkFileExists(token, owner, repo, filePath, branch = 'main') {
   try {
+    const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
     const response = await axios.get(
-      `${GITHUB_API_URL}/repos/${owner}/${repo}/contents/${filePath}?ref=${branch}`,
+      `${GITHUB_API_URL}/repos/${owner}/${repo}/contents/${encodedPath}?ref=${encodeURIComponent(branch)}`,
       { headers: getHeaders(token) }
     );
     return {
@@ -127,8 +128,9 @@ async function createOrUpdateFile(token, owner, repo, filePath, content, message
       body.sha = existingSha;
     }
 
+    const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
     const response = await axios.put(
-      `${GITHUB_API_URL}/repos/${owner}/${repo}/contents/${filePath}`,
+      `${GITHUB_API_URL}/repos/${owner}/${repo}/contents/${encodedPath}`,
       body,
       { headers: getHeaders(token) }
     );
@@ -145,7 +147,9 @@ async function createOrUpdateFile(token, owner, repo, filePath, content, message
 async function commitSolutionFiles(token, repoFullName, branch, files, commitMessage) {
   const [owner, repo] = repoFullName.split('/');
   if (!owner || !repo) {
-    throw new Error('Invalid repository format. Expected "owner/repo".');
+    const err = new Error('Invalid repository format. Expected "owner/repo".');
+    err.status = 400;
+    throw err;
   }
 
   const results = [];
@@ -188,20 +192,25 @@ function handleGithubError(error, defaultMessage) {
     const status = error.response.status;
     const ghMessage = error.response.data?.message || error.message;
 
+    let message = `${defaultMessage}: ${ghMessage}`;
     if (status === 401) {
-      throw new Error('Your GitHub authorization has expired. Please reconnect your account.');
+      message = 'Your GitHub authorization has expired. Please reconnect your account.';
     } else if (status === 403) {
-      throw new Error(`GitHub API rate limit exceeded or access forbidden: ${ghMessage}`);
+      message = `GitHub API rate limit exceeded or access forbidden: ${ghMessage}`;
     } else if (status === 404) {
-      throw new Error(`GitHub resource not found: ${ghMessage}`);
+      message = `GitHub resource not found: ${ghMessage}`;
     } else if (status === 409) {
-      throw new Error('Conflict: The file has been modified concurrently on GitHub.');
+      message = 'Conflict: The file has been modified concurrently on GitHub.';
     }
 
-    throw new Error(`${defaultMessage}: ${ghMessage}`);
+    const customErr = new Error(message);
+    customErr.status = status;
+    throw customErr;
   }
 
-  throw new Error(`${defaultMessage}: ${error.message}`);
+  const genericErr = new Error(`${defaultMessage}: ${error.message}`);
+  genericErr.status = error.status || 500;
+  throw genericErr;
 }
 
 module.exports = {

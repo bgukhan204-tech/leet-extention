@@ -16,6 +16,7 @@ const LANGUAGE_EXTENSIONS = {
   c: { ext: '.c', tag: 'c', name: 'C' },
   'c#': { ext: '.cs', tag: 'csharp', name: 'C#' },
   csharp: { ext: '.cs', tag: 'csharp', name: 'C#' },
+  cs: { ext: '.cs', tag: 'csharp', name: 'C#' },
   go: { ext: '.go', tag: 'go', name: 'Go' },
   golang: { ext: '.go', tag: 'go', name: 'Go' },
   rust: { ext: '.rs', tag: 'rust', name: 'Rust' },
@@ -28,7 +29,15 @@ const LANGUAGE_EXTENSIONS = {
   dart: { ext: '.dart', tag: 'dart', name: 'Dart' },
   racket: { ext: '.rkt', tag: 'scheme', name: 'Racket' },
   erlang: { ext: '.erl', tag: 'erlang', name: 'Erlang' },
-  elixir: { ext: '.ex', tag: 'elixir', name: 'Elixir' }
+  elixir: { ext: '.ex', tag: 'elixir', name: 'Elixir' },
+  sql: { ext: '.sql', tag: 'sql', name: 'SQL' },
+  mysql: { ext: '.sql', tag: 'sql', name: 'MySQL' },
+  mssql: { ext: '.sql', tag: 'sql', name: 'MS SQL Server' },
+  oraclesql: { ext: '.sql', tag: 'sql', name: 'Oracle SQL' },
+  postgresql: { ext: '.sql', tag: 'sql', name: 'PostgreSQL' },
+  bash: { ext: '.sh', tag: 'bash', name: 'Bash' },
+  sh: { ext: '.sh', tag: 'bash', name: 'Bash' },
+  pandas: { ext: '.py', tag: 'python', name: 'Pandas (Python)' }
 };
 
 function getLanguageDetails(rawLang) {

@@ -7,20 +7,30 @@
   let isObserverActive = false;
   let lastTriggeredTime = 0;
   let activeModal = null;
+  let lastKnownUrl = window.location.href;
 
   console.log('[LeetCode2Git] Content script initialized on:', window.location.href);
 
   // Initialize submission watcher
   initSubmissionWatcher();
 
+  // Watch for single-page application URL transitions (LeetCode SPA navigation)
+  setInterval(() => {
+    if (window.location.href !== lastKnownUrl) {
+      lastKnownUrl = window.location.href;
+      // Reset trigger cooldown on page/problem change
+      lastTriggeredTime = 0;
+    }
+  }, 1000);
+
   function initSubmissionWatcher() {
     if (isObserverActive) return;
 
     // Observe DOM mutations to detect submission result overlays / banners
     const observer = new MutationObserver((mutations) => {
-      // Debounce trigger (ignore within 5s of previous trigger)
+      // Debounce trigger (ignore within 4s of previous trigger)
       const now = Date.now();
-      if (now - lastTriggeredTime < 5000) return;
+      if (now - lastTriggeredTime < 4000) return;
 
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
@@ -49,8 +59,8 @@
     const isAccepted =
       targetNode.matches?.('[data-e2e-locator="submission-result"]') ||
       targetNode.querySelector?.('[data-e2e-locator="submission-result"]') ||
-      targetNode.matches?.('span[class*="text-green"], div[class*="text-green"]') ||
-      targetNode.querySelector?.('span[class*="text-green"], div[class*="text-green"]') ||
+      targetNode.matches?.('span[class*="text-green"], div[class*="text-green"], span[class*="text-sd-green"]') ||
+      targetNode.querySelector?.('span[class*="text-green"], div[class*="text-green"], span[class*="text-sd-green"]') ||
       targetNode.textContent?.includes('Accepted');
 
     if (!isAccepted) return;
@@ -110,8 +120,8 @@
    * Extract problem number, title, difficulty, and language from LeetCode page
    */
   function extractProblemDetails() {
-    let problemNumber = '1';
-    let problemTitle = 'Two Sum';
+    let problemNumber = '';
+    let problemTitle = '';
     let difficulty = 'Easy';
     let language = 'Python';
 
@@ -119,10 +129,11 @@
     // Look for heading like "1. Two Sum"
     const titleCandidates = [
       document.querySelector('[data-cy="question-title"]'),
+      document.querySelector('[data-e2e-locator="question-title"]'),
       document.querySelector('.text-title-large'),
       document.querySelector('div[class*="text-title-large"]'),
-      document.querySelector('a[href*="/problems/"][class*="text-"]'),
-      document.querySelector('div.text-lg.font-medium')
+      document.querySelector('div[class*="text-lg"][class*="font-medium"]'),
+      document.querySelector('a[href*="/problems/"][class*="text-"]')
     ];
 
     for (const el of titleCandidates) {
@@ -133,18 +144,32 @@
           problemNumber = match[1];
           problemTitle = match[2];
           break;
-        } else if (fullText.length > 2 && fullText.length < 80) {
+        } else if (fullText.length > 1 && fullText.length < 90) {
           problemTitle = fullText;
         }
       }
     }
 
-    // Fallback: extract from URL path (e.g., leetcode.com/problems/two-sum/)
+    // 2. Fallback via document.title (e.g. "1. Two Sum - LeetCode" or "Two Sum - LeetCode")
+    if (!problemTitle && document.title) {
+      const docTitleMatch = document.title.match(/^(\d+)\.\s*(.+?)(?:\s*-\s*LeetCode)?$/i);
+      if (docTitleMatch) {
+        problemNumber = problemNumber || docTitleMatch[1];
+        problemTitle = docTitleMatch[2].trim();
+      } else {
+        const cleanDocTitle = document.title.replace(/\s*-\s*LeetCode.*$/i, '').trim();
+        if (cleanDocTitle && cleanDocTitle.length < 90) {
+          problemTitle = cleanDocTitle;
+        }
+      }
+    }
+
+    // 3. Fallback: extract from URL path (e.g., leetcode.com/problems/two-sum/)
     const pathParts = window.location.pathname.split('/');
     const problemIdx = pathParts.indexOf('problems');
     if (problemIdx !== -1 && pathParts[problemIdx + 1]) {
       const slug = pathParts[problemIdx + 1];
-      if (problemTitle === 'Two Sum' && slug !== 'two-sum') {
+      if (!problemTitle || problemTitle === 'Two Sum') {
         problemTitle = slug
           .split('-')
           .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
@@ -152,9 +177,13 @@
       }
     }
 
-    // 2. Difficulty Extraction
+    // Default fallback values if title was not detected
+    if (!problemTitle) problemTitle = 'Solution';
+    if (!problemNumber) problemNumber = '1';
+
+    // 4. Difficulty Extraction
     const diffCandidates = document.querySelectorAll(
-      'div[class*="text-difficulty-"], div[class*="text-olive"], div[class*="text-yellow"], div[class*="text-pink"], span[class*="text-difficulty-"], div[class*="text-easy"], div[class*="text-medium"], div[class*="text-hard"]'
+      'div[class*="text-difficulty-"], div[class*="text-olive"], div[class*="text-yellow"], div[class*="text-pink"], span[class*="text-difficulty-"], div[class*="text-easy"], div[class*="text-medium"], div[class*="text-hard"], span[class*="text-easy"], span[class*="text-medium"], span[class*="text-hard"]'
     );
 
     for (const el of diffCandidates) {
@@ -165,7 +194,7 @@
       }
     }
 
-    // 3. Language Extraction
+    // 5. Language Extraction
     const langBtn =
       document.querySelector('button[id^="headlessui-listbox-button"]') ||
       document.querySelector('[data-cy="lang-select"]') ||
@@ -174,7 +203,7 @@
 
     if (langBtn && langBtn.textContent) {
       const txt = langBtn.textContent.trim();
-      if (txt.length < 25) {
+      if (txt.length > 0 && txt.length < 25) {
         language = txt;
       }
     }
@@ -183,11 +212,22 @@
   }
 
   /**
-   * Safely extract solution code from Monaco Editor lines in the DOM
+   * Safely extract solution code from submission view, Monaco Editor, or Textarea
    */
   function extractSolutionCode() {
     try {
-      // 1. Try Monaco view-lines
+      // 1. Try submission detail panel code element first (exact submitted code)
+      const submissionCodeEl =
+        document.querySelector('[data-e2e-locator="submission-code"]') ||
+        document.querySelector('.submission-detail pre') ||
+        document.querySelector('div[class*="submission"] pre') ||
+        document.querySelector('pre[class*="language-"]');
+
+      if (submissionCodeEl && submissionCodeEl.textContent && submissionCodeEl.textContent.trim().length > 10) {
+        return submissionCodeEl.textContent.trim();
+      }
+
+      // 2. Try Monaco view-lines
       const lines = document.querySelectorAll('.monaco-editor .view-lines .view-line');
       if (lines && lines.length > 0) {
         const codeLines = Array.from(lines).map((l) => l.textContent || '');
@@ -197,7 +237,7 @@
         }
       }
 
-      // 2. Try textarea fallback
+      // 3. Try textarea fallback
       const textareas = document.querySelectorAll('textarea');
       for (const ta of textareas) {
         if (ta.value && ta.value.length > 20) {
@@ -224,7 +264,7 @@
     const overlay = document.createElement('div');
     overlay.id = 'leetcode2git-overlay';
 
-    const diffClass = `lc2g-badge-${details.difficulty.toLowerCase()}`;
+    const diffClass = `lc2g-badge-${(details.difficulty || 'easy').toLowerCase()}`;
 
     overlay.innerHTML = `
       <div id="leetcode2git-modal">
@@ -327,8 +367,9 @@
       (res) => {
         if (res && res.exists) {
           isOverwrite = true;
-          duplicateNotice.style.display = 'block';
-          saveBtn.querySelector('span').textContent = 'Update on GitHub';
+          if (duplicateNotice) duplicateNotice.style.display = 'block';
+          const btnSpan = saveBtn.querySelector('span');
+          if (btnSpan) btnSpan.textContent = 'Update on GitHub';
         }
       }
     );
@@ -366,7 +407,8 @@
             saveBtn.disabled = false;
             cancelBtn.disabled = false;
             saveBtn.innerHTML = '<span>Retry Save</span>';
-            alert(`Upload Failed: ${uploadRes?.error || 'Unknown error occurred.'}`);
+            const errorMsg = uploadRes?.message || uploadRes?.error || 'Unknown error occurred.';
+            alert(`Upload Failed: ${errorMsg}`);
           }
         }
       );

@@ -96,7 +96,8 @@ async function uploadSolution(req, res, next) {
     }
 
     // 1. Structure paths
-    const diffFolder = difficulty || 'Easy';
+    const rawDiff = difficulty || 'Easy';
+    const diffFolder = rawDiff.charAt(0).toUpperCase() + rawDiff.slice(1).toLowerCase();
     const folderName = sanitizeProblemFolderName(problemNumber, problemTitle);
     const langDetails = getLanguageDetails(language);
 
@@ -133,27 +134,30 @@ async function uploadSolution(req, res, next) {
       commitMessage
     );
 
-    // 4. Save solution record in MongoDB strictly tied to req.user._id
+    // 4. Save solution record in MongoDB strictly tied to authenticated user ID
     const currentUserId = req.user._id || req.user.id;
     let savedSolution = null;
 
     if (mongoose.connection.readyState === 1) {
       try {
-        savedSolution = await Solution.create({
-          userId: currentUserId,
-          problemNumber: Number(problemNumber),
-          problemTitle,
-          slug: problemTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
-          difficulty: diffFolder,
-          language: langDetails.name,
-          code,
-          githubPath: codeFilePath,
-          githubCommitSha: commitResult.commitSha,
-          githubCommitUrl: commitResult.commitUrl,
-          timeComplexity: timeComplexity || 'O(n)',
-          spaceComplexity: spaceComplexity || 'O(1)',
-          submittedAt: new Date()
-        });
+        const canUseObjectId = mongoose.Types.ObjectId.isValid(String(currentUserId));
+        if (canUseObjectId) {
+          savedSolution = await Solution.create({
+            userId: currentUserId,
+            problemNumber: Number(problemNumber),
+            problemTitle,
+            slug: problemTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+            difficulty: ['Easy', 'Medium', 'Hard'].includes(diffFolder) ? diffFolder : 'Easy',
+            language: langDetails.name,
+            code,
+            githubPath: codeFilePath,
+            githubCommitSha: commitResult.commitSha,
+            githubCommitUrl: commitResult.commitUrl,
+            timeComplexity: timeComplexity || 'O(n)',
+            spaceComplexity: spaceComplexity || 'O(1)',
+            submittedAt: new Date()
+          });
+        }
       } catch (dbErr) {
         console.warn('[Solution Controller] DB insert fallback:', dbErr.message);
       }
@@ -194,9 +198,13 @@ async function getSolutions(req, res, next) {
     const userId = req.user._id || req.user.id;
 
     // Strict multi-user filter: never trust query param userId
-    const query = { userId };
+    const query = {};
+    if (mongoose.Types.ObjectId.isValid(String(userId))) {
+      query.userId = userId;
+    }
     if (difficulty) {
-      query.difficulty = difficulty;
+      const normalizedDiff = difficulty.charAt(0).toUpperCase() + difficulty.slice(1).toLowerCase();
+      query.difficulty = normalizedDiff;
     }
     if (search) {
       query.problemTitle = { $regex: search, $options: 'i' };
@@ -205,7 +213,7 @@ async function getSolutions(req, res, next) {
     let solutions = [];
     let total = 0;
 
-    if (mongoose.connection.readyState === 1) {
+    if (mongoose.connection.readyState === 1 && query.userId) {
       try {
         total = await Solution.countDocuments(query);
         solutions = await Solution.find(query)
@@ -237,7 +245,7 @@ async function getSolutionStats(req, res, next) {
     const userId = req.user._id || req.user.id;
 
     let solutions = [];
-    if (mongoose.connection.readyState === 1) {
+    if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(String(userId))) {
       try {
         solutions = await Solution.find({ userId }).select('difficulty submittedAt createdAt');
       } catch (dbErr) {
@@ -277,7 +285,7 @@ async function getSolutionById(req, res, next) {
     const userId = req.user._id || req.user.id;
 
     let solution = null;
-    if (mongoose.connection.readyState === 1) {
+    if (mongoose.connection.readyState === 1 && mongoose.Types.ObjectId.isValid(String(id))) {
       solution = await Solution.findOne({ _id: id, userId });
     }
 

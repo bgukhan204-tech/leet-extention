@@ -27,6 +27,14 @@ describe('languageMap Utility', () => {
     expect(getLanguageDetails('Rust').ext).toBe('.rs');
   });
 
+  test('should return correct extension for SQL, MySQL, PostgreSQL, Bash, and Pandas', () => {
+    expect(getLanguageDetails('SQL').ext).toBe('.sql');
+    expect(getLanguageDetails('MySQL').ext).toBe('.sql');
+    expect(getLanguageDetails('PostgreSQL').ext).toBe('.sql');
+    expect(getLanguageDetails('Bash').ext).toBe('.sh');
+    expect(getLanguageDetails('Pandas').ext).toBe('.py');
+  });
+
   test('should sanitize problem folder names correctly', () => {
     expect(sanitizeProblemFolderName(1, 'Two Sum')).toBe('1-Two-Sum');
     expect(sanitizeProblemFolderName(20, 'Valid Parentheses')).toBe('20-Valid-Parentheses');

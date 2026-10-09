@@ -13,19 +13,29 @@ async function upsertUser(userData) {
 
   if (mongoose.connection.readyState === 1) {
     try {
+      const updateData = {
+        githubId: githubIdStr,
+        githubUsername: userData.githubUsername,
+        name: userData.name || userData.githubUsername,
+        email: userData.email || '',
+        avatarUrl: userData.avatarUrl || '',
+        githubAccessToken: userData.githubAccessToken
+      };
+
+      // Only overwrite preferences if explicitly provided in payload
+      if (userData.selectedRepository !== undefined) {
+        updateData.selectedRepository = userData.selectedRepository;
+      }
+      if (userData.selectedBranch !== undefined) {
+        updateData.selectedBranch = userData.selectedBranch;
+      }
+      if (userData.autoSave !== undefined) {
+        updateData.autoSave = userData.autoSave;
+      }
+
       user = await User.findOneAndUpdate(
         { githubId: githubIdStr },
-        {
-          githubId: githubIdStr,
-          githubUsername: userData.githubUsername,
-          name: userData.name || userData.githubUsername,
-          email: userData.email || '',
-          avatarUrl: userData.avatarUrl || '',
-          githubAccessToken: userData.githubAccessToken,
-          selectedRepository: userData.selectedRepository || '',
-          selectedBranch: userData.selectedBranch || 'main',
-          autoSave: userData.autoSave !== false
-        },
+        { $set: updateData },
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
     } catch (dbErr) {
@@ -45,8 +55,8 @@ async function upsertUser(userData) {
       email: userData.email || '',
       avatarUrl: userData.avatarUrl || '',
       githubAccessToken: userData.githubAccessToken,
-      selectedRepository: userData.selectedRepository || existing?.selectedRepository || '',
-      selectedBranch: userData.selectedBranch || existing?.selectedBranch || 'main',
+      selectedRepository: userData.selectedRepository !== undefined ? userData.selectedRepository : (existing?.selectedRepository || ''),
+      selectedBranch: userData.selectedBranch !== undefined ? userData.selectedBranch : (existing?.selectedBranch || 'main'),
       autoSave: userData.autoSave !== undefined ? userData.autoSave : (existing?.autoSave !== false)
     };
   }

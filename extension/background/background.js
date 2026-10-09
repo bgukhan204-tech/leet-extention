@@ -30,32 +30,162 @@ chrome.runtime.onInstalled.addListener((details) => {
   });
 });
 
+// Reusable session persistence helper
+async function saveAuthSession(jwtToken, user) {
+  if (!jwtToken) return false;
+
+  // If user profile is not complete, fetch verified profile from backend
+  if (!user || !user.githubUsername) {
+    try {
+      const userRes = await fetch(`${API_BASE_URL}/github/user`, {
+        headers: { 'Authorization': `Bearer ${jwtToken}` }
+      });
+      if (userRes.ok) {
+        const userData = await userRes.json();
+        if (userData && userData.user) {
+          user = userData.user;
+        }
+      }
+    } catch (fetchErr) {
+      console.warn('[LeetCode2Git] Fetch user notice during saveAuthSession:', fetchErr);
+    }
+  }
+
+  const username = (user && (user.githubUsername || user.username)) || '';
+  const selectedRepo = (user && user.selectedRepository) || '';
+  const selectedBranch = (user && user.selectedBranch) || 'main';
+
+  await chrome.storage.local.set({
+    jwtToken,
+    githubUser: user || { githubUsername: username },
+    githubUsername: username,
+    isLoggedIn: true,
+    selectedRepository: selectedRepo,
+    selectedBranch: selectedBranch
+  });
+
+  await updateBadge('✓', '#238636');
+  setTimeout(() => clearBadge(), 4000);
+  console.log('[LeetCode2Git] Authentication session successfully saved for: @' + username);
+  return true;
+}
+
+/**
+ * Active Tab Watcher: Automatically intercept OAuth callbacks across all browser tabs
+ */
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (!tab || !tab.url) return;
+
+  const urlStr = tab.url;
+
+  // 1. Intercept URL containing jwtToken or token in parameters or hash
+  if (
+    urlStr.includes('jwtToken=') ||
+    urlStr.includes('token=') ||
+    urlStr.includes('chromiumapp.org') ||
+    urlStr.includes('/api/auth/github/success') ||
+    urlStr.includes('/api/auth/dev-callback')
+  ) {
+    try {
+      let jwtToken = null;
+      let user = null;
+
+      try {
+        const urlObj = new URL(urlStr);
+        jwtToken = urlObj.searchParams.get('jwtToken') || urlObj.searchParams.get('token');
+        const userParam = urlObj.searchParams.get('user');
+        if (userParam) {
+          try {
+            user = JSON.parse(decodeURIComponent(userParam));
+          } catch (e) {
+            try { user = JSON.parse(userParam); } catch (e2) {}
+          }
+        }
+      } catch (urlErr) {}
+
+      if (jwtToken) {
+        await saveAuthSession(jwtToken, user);
+        setTimeout(() => {
+          chrome.tabs.remove(tabId).catch(() => {});
+        }, 1000);
+        return;
+      }
+    } catch (err) {
+      console.warn('[LeetCode2Git] Tab URL auth extraction notice:', err);
+    }
+  }
+
+  // 2. Intercept callback/success pages via DOM & Window script extraction on completion
+  if (
+    changeInfo.status === 'complete' &&
+    (urlStr.includes('/api/auth/github/callback') ||
+     urlStr.includes('/api/auth/github/success') ||
+     urlStr.includes('/api/auth/dev-callback'))
+  ) {
+    try {
+      const results = await chrome.scripting.executeScript({
+        target: { tabId },
+        world: 'MAIN',
+        func: () => {
+          const payloadEl = document.getElementById('leetcode2git-auth-payload');
+          const tokenFromPayload = payloadEl ? payloadEl.getAttribute('data-token') : null;
+          const userFromPayload = payloadEl ? payloadEl.getAttribute('data-user') : null;
+
+          const tokenFromWindow = (typeof window !== 'undefined' && window.authData)
+            ? (window.authData.jwtToken || window.authData.token)
+            : null;
+          const userFromWindow = (typeof window !== 'undefined' && window.authData)
+            ? window.authData.user
+            : null;
+
+          let tokenFromStorage = null;
+          let userFromStorage = null;
+          try {
+            const stored = localStorage.getItem('leetcode2git_auth') || sessionStorage.getItem('leetcode2git_auth');
+            if (stored) {
+              const p = JSON.parse(stored);
+              tokenFromStorage = p.jwtToken || p.token;
+              userFromStorage = p.user;
+            }
+          } catch (e) {}
+
+          return {
+            jwtToken: tokenFromPayload || tokenFromWindow || tokenFromStorage,
+            user: userFromPayload || userFromWindow || userFromStorage
+          };
+        }
+      });
+
+      if (results && results[0] && results[0].result) {
+        const extracted = results[0].result;
+        if (extracted.jwtToken) {
+          let userObj = extracted.user;
+          if (typeof userObj === 'string') {
+            try { userObj = JSON.parse(userObj); } catch (e) {}
+          }
+          await saveAuthSession(extracted.jwtToken, userObj);
+          setTimeout(() => {
+            chrome.tabs.remove(tabId).catch(() => {});
+          }, 1000);
+        }
+      }
+    } catch (scriptErr) {
+      console.warn('[LeetCode2Git] Script extraction notice:', scriptErr);
+    }
+  }
+});
+
 /**
  * Handle external messages from the OAuth completion page (externally_connectable)
  */
 chrome.runtime.onMessageExternal.addListener((request, sender, sendResponse) => {
   if (request.type === 'AUTH_SUCCESS' && request.data) {
     const { jwtToken, user } = request.data;
-
     if (jwtToken) {
-      const username = (user && (user.githubUsername || user.username)) || '';
-      const selectedRepo = (user && user.selectedRepository) || '';
-      const selectedBranch = (user && user.selectedBranch) || 'main';
-
-      chrome.storage.local.set({
-        jwtToken,
-        githubUser: user || { githubUsername: username },
-        isLoggedIn: true,
-        githubUsername: username,
-        selectedRepository: selectedRepo,
-        selectedBranch: selectedBranch
-      }, () => {
-        updateBadge('✓', '#238636');
-        setTimeout(() => clearBadge(), 4000);
+      saveAuthSession(jwtToken, user).then(() => {
         sendResponse({ success: true, message: 'Authentication saved in extension storage.' });
       });
-
-      return true; // Keep async channel open
+      return true;
     }
   }
 });

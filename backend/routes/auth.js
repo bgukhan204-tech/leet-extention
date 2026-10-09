@@ -7,6 +7,8 @@ const { authLimiter } = require('../middleware/rateLimiter');
 // Public GitHub OAuth routes with rate limiting
 router.get('/github', authLimiter, authController.initiateGithubOAuth);
 router.get('/github/callback', authLimiter, authController.handleGithubCallback);
+router.get('/github/success', authLimiter, authController.handleGithubSuccess);
+router.get('/dev-callback', authLimiter, authController.handleDevCallback);
 
 // Protected routes (require valid JWT)
 router.get('/me', authMiddleware, authController.getCurrentUser);

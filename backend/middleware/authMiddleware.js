@@ -10,7 +10,9 @@ async function authMiddleware(req, res, next) {
   try {
     const authHeader = req.headers.authorization;
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      console.warn('[Auth Middleware] Request missing Bearer authorization header');
+      if (config.nodeEnv !== 'test') {
+        console.warn('[Auth Middleware] Request missing Bearer authorization header');
+      }
       return res.status(401).json({
         success: false,
         message: 'GitHub account is not connected. Please connect your GitHub account.'
@@ -19,7 +21,9 @@ async function authMiddleware(req, res, next) {
 
     const token = authHeader.split(' ')[1];
     if (!token || token === 'undefined' || token === 'null') {
-      console.warn('[Auth Middleware] Bearer token is empty or invalid string');
+      if (config.nodeEnv !== 'test') {
+        console.warn('[Auth Middleware] Bearer token is empty or invalid string');
+      }
       return res.status(401).json({
         success: false,
         message: 'GitHub account is not connected. Please connect your GitHub account.'
@@ -30,7 +34,9 @@ async function authMiddleware(req, res, next) {
     try {
       decoded = jwt.verify(token, config.jwtSecret);
     } catch (err) {
-      console.warn(`[Auth Middleware] JWT verification failed: ${err.message}`);
+      if (config.nodeEnv !== 'test') {
+        console.warn(`[Auth Middleware] JWT verification failed: ${err.message}`);
+      }
       return res.status(401).json({
         success: false,
         message: 'Your GitHub authorization has expired. Please reconnect your GitHub account.'
