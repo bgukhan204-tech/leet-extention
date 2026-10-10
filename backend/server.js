@@ -8,6 +8,7 @@ const errorHandler = require('./middleware/errorHandler');
 const authRoutes = require('./routes/auth');
 const githubRoutes = require('./routes/github');
 const solutionRoutes = require('./routes/solutions');
+const privacyController = require('./controllers/privacyController');
 
 const app = express();
 const PORT = config.port;
@@ -70,6 +71,7 @@ app.get('/', (req, res) => {
     version: '1.0.0',
     endpoints: {
       health: '/api/health',
+      privacy: '/privacy',
       auth: '/api/auth/github',
       docs: 'https://github.com/bgukhan204-tech/leet-extention'
     }
@@ -86,6 +88,10 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString()
   });
 });
+
+// Public Privacy Policy Endpoints (HTML)
+app.get('/privacy', privacyController.renderPrivacyPolicy);
+app.get('/api/privacy', privacyController.renderPrivacyPolicy);
 
 // Mount API Routes
 app.use('/api/auth', authRoutes);

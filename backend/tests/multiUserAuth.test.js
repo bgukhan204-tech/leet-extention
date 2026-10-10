@@ -385,6 +385,42 @@ describe('Multi-User Public Architecture & Security Test Suite', () => {
       expect(res.text).toContain('@dev-tester');
       expect(res.text).toContain('leetcode2git-auth-payload');
     });
+
+    test('SECURITY: Block untrusted arbitrary redirect_uri (Open Redirect & Token Theft Prevention)', async () => {
+      const { isValidRedirectUri } = require('../controllers/authController');
+      expect(isValidRedirectUri('https://attacker.com/steal-token')).toBe(false);
+      expect(isValidRedirectUri('http://malicious.org')).toBe(false);
+      expect(isValidRedirectUri('javascript:alert(1)')).toBe(false);
+      expect(isValidRedirectUri('https://myextensionid.chromiumapp.org/')).toBe(true);
+      expect(isValidRedirectUri('chrome-extension://myextensionid/popup.html')).toBe(true);
+
+      // Verify that malicious redirect_uri in state does NOT trigger a redirect to attacker
+      const maliciousState = Buffer.from(JSON.stringify({
+        nonce: 'evilnonce',
+        extensionId: 'attacker_ext',
+        redirectUri: 'https://attacker.com/steal-token'
+      })).toString('base64url');
+
+      jest.spyOn(axios, 'post').mockResolvedValueOnce({
+        data: { access_token: 'gho_mock_token_evil_check' }
+      });
+
+      jest.spyOn(githubService, 'getUserProfile').mockResolvedValueOnce({
+        id: 10003,
+        login: 'security-tester',
+        name: 'Security Tester',
+        email: 'sec@example.com',
+        avatar_url: 'https://avatars.githubusercontent.com/u/10003'
+      });
+
+      const res = await request(app)
+        .get(`/api/auth/github/callback?code=mock_oauth_code_sec&state=${maliciousState}`);
+
+      // Must NOT redirect to attacker
+      expect(res.status).toBe(200);
+      expect(res.headers.location).toBeUndefined();
+      expect(res.text).toContain('✓ GitHub Connected');
+    });
   });
 
   describe('6. User Preference Preservation on Re-Login', () => {

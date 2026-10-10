@@ -42,11 +42,53 @@ function sanitizeUser(user) {
 }
 
 /**
+ * Validate that a redirect URI is a legitimate Chrome extension destination
+ * (e.g., https://<extension-id>.chromiumapp.org/ or chrome-extension://)
+ * to prevent Open Redirect / Token Stealing attacks.
+ */
+function isValidRedirectUri(uri) {
+  if (!uri || typeof uri !== 'string') return false;
+  try {
+    const parsed = new URL(uri);
+
+    // 1. Valid Chrome extension Web Auth Flow redirect (https://<extensionId>.chromiumapp.org/)
+    if (parsed.protocol === 'https:' && parsed.hostname.endsWith('.chromiumapp.org')) {
+      return true;
+    }
+
+    // 2. Direct Chrome Extension scheme (chrome-extension://<extensionId>/...)
+    if (parsed.protocol === 'chrome-extension:') {
+      return true;
+    }
+
+    // 3. Backend's own trusted origin
+    try {
+      const backendOrigin = new URL(config.backendUrl).origin;
+      if (parsed.origin === backendOrigin) {
+        return true;
+      }
+    } catch (e) {}
+
+    // 4. Localhost allowed in development/testing only
+    if (config.nodeEnv !== 'production' && parsed.protocol === 'http:') {
+      if (parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1') {
+        return true;
+      }
+    }
+
+    return false;
+  } catch (err) {
+    return false;
+  }
+}
+
+/**
  * Redirect user to GitHub OAuth authorization screen
  */
 async function initiateGithubOAuth(req, res) {
   const extensionId = req.query.extensionId || '';
-  const redirectUri = req.query.redirect_uri || req.query.redirectUri || '';
+  const rawRedirectUri = req.query.redirect_uri || req.query.redirectUri || '';
+  const redirectUri = isValidRedirectUri(rawRedirectUri) ? rawRedirectUri : '';
 
   const isPlaceholder =
     !config.githubClientId ||
@@ -289,8 +331,8 @@ async function handleGithubCallback(req, res) {
     const jwtToken = generateJwt(user);
     const safeUser = sanitizeUser(user);
 
-    // 5. If a redirect URI is present (from chrome.identity.launchWebAuthFlow), redirect directly back to the extension
-    if (redirectUri) {
+    // 5. If a valid redirect URI is present (from chrome.identity.launchWebAuthFlow), redirect directly back to the extension
+    if (redirectUri && isValidRedirectUri(redirectUri)) {
       try {
         const targetUrl = new URL(redirectUri);
         targetUrl.searchParams.set('jwtToken', jwtToken);
@@ -301,6 +343,8 @@ async function handleGithubCallback(req, res) {
       } catch (urlErr) {
         console.warn('[OAuth] Invalid redirectUri URL:', redirectUri, urlErr);
       }
+    } else if (redirectUri) {
+      console.warn(`[OAuth Security] Blocked untrusted redirect_uri: ${redirectUri}`);
     }
 
     // 6. Return HTML completion page directly when no redirectUri is present
@@ -532,7 +576,7 @@ async function handleDevCallback(req, res) {
 
   const jwtToken = generateJwt(devUser);
   const safeUser = sanitizeUser(devUser);
-  if (redirectUri) {
+  if (redirectUri && isValidRedirectUri(redirectUri)) {
     try {
       const targetUrl = new URL(redirectUri);
       targetUrl.searchParams.set('jwtToken', jwtToken);
@@ -649,5 +693,6 @@ module.exports = {
   handleGithubSuccess,
   handleDevCallback,
   getCurrentUser,
-  logout
+  logout,
+  isValidRedirectUri
 };

@@ -15,6 +15,23 @@ describe('API Endpoints Test Suite', () => {
     expect(res.status).toBe(200);
   });
 
+  test('Public endpoint GET /privacy returns 200 and renders HTML Privacy Policy', async () => {
+    const res = await request(app).get('/privacy');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.text).toContain('Privacy Policy');
+    expect(res.text).toContain('LeetCode2Git');
+    expect(res.text).toContain('GitHub OAuth');
+    expect(res.text).toContain('Data Security');
+  });
+
+  test('Public endpoint GET /api/privacy also returns 200 and renders HTML Privacy Policy', async () => {
+    const res = await request(app).get('/api/privacy');
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/html');
+    expect(res.text).toContain('Privacy Policy');
+  });
+
   test('Protected endpoint GET /api/github/user rejects unauthenticated request with 401', async () => {
     const res = await request(app).get('/api/github/user');
     expect(res.status).toBe(401);

@@ -21,28 +21,17 @@
     "storage",
     "activeTab",
     "scripting",
-    "alarms",
     "identity",
     "tabs"
   ],
   "host_permissions": [
     "https://leetcode.com/*",
     "https://*.leetcode.com/*",
-    "https://leetcode2git-backend.onrender.com/*",
-    "https://*.onrender.com/*",
-    "http://localhost/*",
-    "http://127.0.0.1/*",
-    "https://api.github.com/*"
+    "https://leetcode2git-backend.onrender.com/*"
   ],
   "externally_connectable": {
     "matches": [
-      "http://localhost/*",
-      "http://127.0.0.1/*",
-      "https://leetcode2git-backend.onrender.com/*",
-      "https://*.leetcodetogit.com/*",
-      "https://*.onrender.com/*",
-      "https://*.railway.app/*",
-      "https://*.vercel.app/*"
+      "https://leetcode2git-backend.onrender.com/*"
     ]
   },
   "background": {
@@ -60,10 +49,7 @@
     },
     {
       "matches": [
-        "https://leetcode2git-backend.onrender.com/*",
-        "https://*.onrender.com/*",
-        "http://localhost/*",
-        "http://127.0.0.1/*"
+        "https://leetcode2git-backend.onrender.com/*"
       ],
       "js": ["content/authCallback.js"],
       "run_at": "document_idle"

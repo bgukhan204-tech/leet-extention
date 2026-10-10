@@ -7,7 +7,8 @@
     "start": "node backend/server.js",
     "build": "cd backend && npm install",
     "dev": "cd backend && npm run dev",
-    "test": "cd backend && npm test"
+    "test": "cd backend && npm test",
+    "package:extension": "node scripts/package-extension.js"
   },
   "keywords": ["leetcode", "github", "chrome-extension"],
   "license": "MIT"
