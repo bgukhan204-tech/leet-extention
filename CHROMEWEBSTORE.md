@@ -1,26 +1,22 @@
-# Chrome Web Store Metadata & Publishing Guide: LeetCode2Git
+# Chrome Web Store Listing — LeetCode2Git
 
-**Extension Name**: LeetCode2Git  
-**Current Version**: 1.0.0  
-**Manifest Version**: 3  
-**Category**: Developer Tools  
-**Privacy Policy URL**: `https://leetcode2git-backend.onrender.com/privacy`  
-**Last Updated**: October 2026  
-
----
+> Last Updated: 2026-10-13
 
 ## 1. Store Listing Information
 
-### Short Description (Max 132 chars)
+**Extension Name** [REQUIRED]  
+LeetCode2Git
+
+**Short Description** [REQUIRED] (Max 132 chars)  
 Automatically and genuinely save your accepted LeetCode solutions directly to your personal GitHub repository.
 
-### Detailed Description (For Chrome Web Store Dashboard)
+**Detailed Description** [REQUIRED] (For Chrome Web Store Dashboard)  
 LeetCode2Git is a clean, developer-focused companion for your LeetCode journey. When you solve a problem and receive an "Accepted" verdict on LeetCode, LeetCode2Git detects your submission and helps you commit the working code directly to your personal GitHub repository, neatly organized by difficulty.
 
 HOW IT WORKS
 1. Install LeetCode2Git and click "Connect GitHub" in the extension popup.
 2. Select your target GitHub repository (e.g., username/leetcode-solutions) and default branch.
-3. Solve problems on LeetCode as usual. Upon an "Accepted" verdict, review your code and click "Save to GitHub".
+3. Solve problems on LeetCode as usual. Upon an "Accepted" verdict, review your code in the in-page modal and click "Save to GitHub".
 
 KEY FEATURES
 • Instant Accepted Detection: Automatically recognizes genuine "Accepted" submissions on LeetCode problem pages.
@@ -40,48 +36,106 @@ Found a bug or have a suggestion?
 • GitHub Repository: https://github.com/bgukhan204-tech/leet-extention
 • Issue Tracker: https://github.com/bgukhan204-tech/leet-extention/issues
 
+**Category** [REQUIRED]  
+Developer Tools
+
+**Single Purpose** [REQUIRED]  
+Automatically commits accepted LeetCode problem solutions and summary notes to the user's selected GitHub repository.
+
+**Primary Language** [REQUIRED]  
+English
+
 ---
 
-## 2. Permissions Justification
+## 2. Graphics & Assets
 
-| Permission | Justification |
-| :--- | :--- |
-| `storage` | Required to store user authentication state, selected GitHub repository, target branch, and auto-prompt preferences locally in Chrome storage. |
-| `activeTab` | Required to detect the active LeetCode tab context and trigger the in-page confirmation modal when an accepted solution is detected. |
-| `scripting` | Used to inject helper overlays and communicate submission data safely within LeetCode problem pages. |
-| `identity` | Required for secure 1-click GitHub OAuth web authentication flow with automatic token exchange. |
-| `tabs` | Required to monitor completion of OAuth callback tabs and open repository links directly in new tabs. |
+| Asset | Dimensions | Status | Filename / Location |
+|-------|-----------|--------|---------------------|
+| Store Icon [REQUIRED] | 128×128 PNG | ✅ Ready | `extension/assets/icon-128.png` |
+| Extension Icon 48 | 48×48 PNG | ✅ Ready | `extension/assets/icon-48.png` |
+| Extension Icon 16 | 16×16 PNG | ✅ Ready | `extension/assets/icon-16.png` |
+| Screenshot 1 [REQUIRED] | 1280×800 PNG | ✅ Ready | `store-assets/screenshot-1-connected.png` |
+| Screenshot 2 [RECOMMENDED] | 1280×800 PNG | ✅ Ready | `store-assets/screenshot-2-accepted.png` |
+| Screenshot 3 [RECOMMENDED] | 1280×800 PNG | ✅ Ready | `store-assets/screenshot-3-github.png` |
+| Small Promo Tile [RECOMMENDED] | 440×280 PNG | ✅ Ready | `store-assets/promo-tile-440x280.png` |
 
-### Host Permissions Justification
+### Screenshot Notes
+1. **Screenshot 1 (`screenshot-1-connected.png`)**: Extension popup UI showcasing active GitHub authentication state (`@developer`), target repository dropdown, Auto Save toggle, and Create README setting.
+2. **Screenshot 2 (`screenshot-2-accepted.png`)**: Real LeetCode problem page showing the in-page "✓ Accepted Submission Detected!" modal, solution code editor, and time/space complexity inputs.
+3. **Screenshot 3 (`screenshot-3-github.png`)**: Target GitHub repository view displaying structured directories (`Easy/1-Two-Sum/`), committed `solution.py`, and auto-generated `README.md`.
+4. **Promo Tile (`promo-tile-440x280.png`)**: High-contrast store promo card emphasizing key capabilities: Auto-Sync, Multi-Language, and Clean Git History.
 
-| Host Pattern | Justification |
-| :--- | :--- |
-| `https://leetcode.com/*` | Required to monitor problem page submissions, parse difficulty and language metadata, and render the confirmation overlay. |
-| `https://*.leetcode.com/*` | Covers regional or subdomain LeetCode problem exploration endpoints. |
-| `https://leetcode2git-backend.onrender.com/*` | Primary production API backend for OAuth session verification, repository validation, duplicate checking, and solution uploads. |
+---
+
+## 3. Permissions Justification
+
+| Permission | Type | Plain-English Justification for Review Team |
+|------------|------|---------------------------------------------|
+| `storage` | permissions | Required to store the user's authentication JWT, selected target GitHub repository, default branch name, and auto-save preferences locally in Chrome storage. |
+| `activeTab` | permissions | Required to detect the active LeetCode tab context and trigger the in-page confirmation modal when an accepted solution is detected. |
+| `scripting` | permissions | Required to extract authentication completion payloads from the verified OAuth completion window. |
+| `identity` | permissions | Required for secure GitHub OAuth 2.0 authentication flow with automatic token exchange via `chrome.identity.launchWebAuthFlow`. |
+| `tabs` | permissions | Required to monitor completion of OAuth callback tabs (`tabs.onUpdated`) and open repository links in new browser tabs (`tabs.create`). |
+| `https://leetcode.com/*` | host_permissions | Required to monitor problem page submissions, parse difficulty and language metadata, and render the confirmation overlay. |
+| `https://*.leetcode.com/*` | host_permissions | Covers regional or subdomain LeetCode problem exploration endpoints. |
+| `https://leetcode2git-backend.onrender.com/*` | host_permissions | Production API backend for OAuth session verification, repository validation, duplicate checking, and solution uploads. |
 
 ### Externally Connectable Justification
 
 | Origin Pattern | Justification |
-| :--- | :--- |
+|----------------|---------------|
 | `https://leetcode2git-backend.onrender.com/*` | Allows the verified production backend OAuth completion page to securely notify the extension upon successful authentication. |
 
 ---
 
-## 3. Privacy & Data Use Disclosure
+## 4. Privacy & Data Use Disclosure
 
-- **Official Privacy Policy**: https://leetcode2git-backend.onrender.com/privacy
-- **Data Collected**: GitHub account username/ID, selected repository target, and problem solution code.
-- **Data Transmission**: Solution code is sent securely via TLS directly to the GitHub REST API through your authenticated session.
-- **No Third-Party Sharing**: No code or user telemetry is sold or shared with any advertising or third-party tracking network.
+### Data Collection Checklist (For Chrome Web Store Dashboard Form)
+
+**Does the extension collect user data?** Yes
+
+| Data Type | Collected? | Transmitted Off-Device? | Purpose | Shared with Third Parties? |
+|-----------|:----------:|:-----------------------:|---------|:--------------------------:|
+| Personally identifiable info | Yes (GitHub username/ID) | Yes (to GitHub API via Backend) | User authentication & target repository access | No |
+| Authentication info | Yes (OAuth JWT session) | Yes (to secure Backend) | Authorizing commits to user's GitHub repo | No |
+| User activity / Content | Yes (Solution code) | Yes (to GitHub API) | Committing accepted solution code to user's repository | No |
+| Health / Financial / Location info | No | No | N/A | No |
+| Web history / Browse tracking | No | No | N/A | No |
+
+### Data Use Certification
+- [x] Data is NOT sold to third parties.
+- [x] Data is NOT used for purposes unrelated to the extension's core functionality (LeetCode solution backup).
+- [x] Data is NOT used for creditworthiness or lending purposes.
 
 ---
 
-## 4. Store Graphics Assets
+## 5. Privacy Policy
 
-The following 1280×800 screenshots are prepared in `store-assets/` for the Chrome Web Store listing:
+- **Live URL**: `https://leetcode2git-backend.onrender.com/privacy`
+- **Verification Status**: Verified live and responding with HTTP 200.
+- **Content**: Discloses GitHub OAuth usage, user data handling, encryption in transit (TLS/HTTPS), and zero third-party data sharing policy.
 
-1. `store-assets/screenshot-1-connected.png`: Extension popup showing LeetCode2Git, GitHub connected state (`@developer`), repository selector, Auto Save, and Create README settings.
-2. `store-assets/screenshot-2-accepted.png`: Real LeetCode problem page with the in-page "✓ Accepted Submission Detected!" confirmation modal, code review editor, and complexity inputs.
-3. `store-assets/screenshot-3-github.png`: Target GitHub repository view displaying structured directories (`Easy/1-Two-Sum/`), committed `solution.py`, and auto-generated `README.md`.
+---
 
+## 6. Distribution & Pricing
+
+- **Visibility**: Public
+- **Regions**: All regions
+- **Pricing**: Free
+
+---
+
+## 7. Developer Info
+
+- **Publisher / Developer**: bgukhan204-tech
+- **GitHub Repository**: https://github.com/bgukhan204-tech/leet-extention
+- **Issue Tracker**: https://github.com/bgukhan204-tech/leet-extention/issues
+- **Production Backend**: https://leetcode2git-backend.onrender.com
+
+---
+
+## 8. Version History
+
+| Version | Date | Changes | Status |
+|---------|------|---------|--------|
+| 1.0.0 | 2026-10-13 | Initial release: Multi-user GitHub OAuth, LeetCode accepted detection, repository sync, difficulty directory structure, README generator | Ready for Submission |

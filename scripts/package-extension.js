@@ -99,19 +99,38 @@ if (fs.existsSync(zipOutput)) {
   fs.unlinkSync(zipOutput);
 }
 
-// 5. Create ZIP package containing ONLY extension contents at root
+// 5. Create ZIP package containing ONLY extension contents at root (using archiver for POSIX forward slashes)
 console.log('4. Packaging extension into dist/leetcode2git-extension.zip...');
-// In PowerShell on Windows:
-const psCommand = `powershell.exe -NoProfile -Command "Compress-Archive -Path '${extensionDir}\\*' -DestinationPath '${zipOutput}' -Force"`;
-execSync(psCommand, { stdio: 'inherit' });
 
-if (!fs.existsSync(zipOutput)) {
-  console.error('❌ Failed to create zip file!');
-  process.exit(1);
+async function createZip() {
+  const archiver = require('archiver');
+  const ArchiveClass = archiver.ZipArchive || archiver;
+  const archive = (typeof archiver === 'function')
+    ? archiver('zip', { zlib: { level: 9 } })
+    : new ArchiveClass({ zlib: { level: 9 } });
+
+  return new Promise((resolve, reject) => {
+    const output = fs.createWriteStream(zipOutput);
+
+    output.on('close', () => {
+      resolve();
+    });
+
+    archive.on('error', (err) => {
+      reject(err);
+    });
+
+    archive.pipe(output);
+    archive.directory(extensionDir, false);
+    archive.finalize();
+  });
 }
 
-const zipStat = fs.statSync(zipOutput);
-console.log(`✓ Package created: ${zipOutput} (${(zipStat.size / 1024).toFixed(2)} KB)`);
+(async () => {
+  try {
+    await createZip();
+    const zipStat = fs.statSync(zipOutput);
+    console.log(`✓ Package created: ${zipOutput} (${(zipStat.size / 1024).toFixed(2)} KB)`);
 
 // 6. Inspect ZIP contents to confirm manifest.json is at root
 console.log('5. Inspecting ZIP file structure...');
@@ -130,6 +149,12 @@ if (inspectOutput.includes('extension/manifest.json') || inspectOutput.includes(
 }
 
 console.log('====================================================');
-console.log('🎉 SUCCESS: Chrome Web Store production package is ready!');
-console.log(`📦 Output: dist/leetcode2git-extension.zip (${(zipStat.size / 1024).toFixed(2)} KB)`);
-console.log('====================================================');
+    console.log('🎉 SUCCESS: Chrome Web Store production package is ready!');
+    console.log(`📦 Output: dist/leetcode2git-extension.zip (${(zipStat.size / 1024).toFixed(2)} KB)`);
+    console.log('====================================================');
+  } catch (err) {
+    console.error('❌ Packaging error:', err);
+    process.exit(1);
+  }
+})();
+
