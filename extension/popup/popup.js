@@ -27,9 +27,31 @@ const autoSaveToggle = document.getElementById('autoSaveToggle');
 const createReadmeToggle = document.getElementById('createReadmeToggle');
 const dashboardBtn = document.getElementById('dashboardBtn');
 
-const statusAlert = document.getElementById('statusAlert');
-const statusAlertText = document.getElementById('statusAlertText');
-const closeAlertBtn = document.getElementById('closeAlertBtn');
+// Dashboard View DOM Elements
+const mainView = document.getElementById('mainView');
+const dashboardView = document.getElementById('dashboardView');
+const backToSettingsBtn = document.getElementById('backToSettingsBtn');
+const refreshDashboardBtn = document.getElementById('refreshDashboardBtn');
+const dashUserBadge = document.getElementById('dashUserBadge');
+const dashboardLoading = document.getElementById('dashboardLoading');
+const dashboardError = document.getElementById('dashboardError');
+const dashboardErrorMsg = document.getElementById('dashboardErrorMsg');
+const retryDashboardBtn = document.getElementById('retryDashboardBtn');
+const dashboardContent = document.getElementById('dashboardContent');
+
+// Stats Elements
+const statTotalSolved = document.getElementById('statTotalSolved');
+const statEasy = document.getElementById('statEasy');
+const statMedium = document.getElementById('statMedium');
+const statHard = document.getElementById('statHard');
+const statCurrentStreak = document.getElementById('statCurrentStreak');
+const statLongestStreak = document.getElementById('statLongestStreak');
+const statThisWeek = document.getElementById('statThisWeek');
+
+// Solutions Elements
+const openRepoLinkBtn = document.getElementById('openRepoLinkBtn');
+const emptySolutionsState = document.getElementById('emptySolutionsState');
+const solutionList = document.getElementById('solutionList');
 
 let alertTimeoutId = null;
 let isManualEntryVisible = false;
@@ -55,9 +77,21 @@ function setupEventListeners() {
     disconnectBtn.addEventListener('click', handleDisconnect);
   }
 
-  // Dashboard Button
+  // Dashboard Navigation & Actions
   if (dashboardBtn) {
     dashboardBtn.addEventListener('click', handleOpenDashboard);
+  }
+  if (backToSettingsBtn) {
+    backToSettingsBtn.addEventListener('click', handleBackToSettings);
+  }
+  if (refreshDashboardBtn) {
+    refreshDashboardBtn.addEventListener('click', loadDashboardData);
+  }
+  if (retryDashboardBtn) {
+    retryDashboardBtn.addEventListener('click', loadDashboardData);
+  }
+  if (openRepoLinkBtn) {
+    openRepoLinkBtn.addEventListener('click', handleOpenGithubRepo);
   }
 
   // Repository actions
@@ -147,6 +181,11 @@ async function refreshPopupState() {
  * Render Disconnected State
  */
 function renderDisconnectedState() {
+  if (mainView && dashboardView) {
+    mainView.classList.remove('hidden');
+    dashboardView.classList.add('hidden');
+  }
+
   statusIndicator.className = 'status-dot disconnected';
   statusText.className = 'status-badge disconnected';
   statusText.textContent = 'Not connected';
@@ -316,20 +355,209 @@ function handleDisconnect() {
 }
 
 /**
- * Open Dashboard / Repository
+ * Open In-Extension Dashboard View
  */
 async function handleOpenDashboard() {
-  const data = await chrome.storage.local.get(['jwtToken', 'selectedRepository']);
+  const data = await chrome.storage.local.get(['jwtToken', 'githubUser', 'githubUsername', 'selectedRepository']);
   if (!data.jwtToken) {
     showAlert('Please connect your GitHub account first.', 'error');
     return;
   }
 
+  const username = data.githubUsername || (data.githubUser && (data.githubUser.githubUsername || data.githubUser.username)) || '';
+  if (dashUserBadge) {
+    dashUserBadge.textContent = username ? `@${username}` : '';
+  }
+
+  // Switch to Dashboard View
+  if (mainView && dashboardView) {
+    mainView.classList.add('hidden');
+    dashboardView.classList.remove('hidden');
+  }
+
+  await loadDashboardData();
+}
+
+/**
+ * Back to Main Settings View
+ */
+function handleBackToSettings() {
+  if (mainView && dashboardView) {
+    dashboardView.classList.add('hidden');
+    mainView.classList.remove('hidden');
+  }
+}
+
+/**
+ * Open Configured Repository on GitHub
+ */
+async function handleOpenGithubRepo() {
+  const data = await chrome.storage.local.get(['selectedRepository']);
   if (data.selectedRepository) {
     chrome.tabs.create({ url: `https://github.com/${data.selectedRepository}` });
   } else {
-    showAlert('Please select a GitHub repository before opening Dashboard.', 'info');
+    showAlert('No repository configured yet.', 'info');
   }
+}
+
+/**
+ * Fetch and Render In-Extension Dashboard Statistics and Recent Solutions
+ */
+async function loadDashboardData() {
+  if (!dashboardLoading || !dashboardError || !dashboardContent) return;
+
+  dashboardLoading.classList.remove('hidden');
+  dashboardError.classList.add('hidden');
+  dashboardContent.classList.add('hidden');
+
+  try {
+    const [statsResult, solutionsResult] = await Promise.all([
+      new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: 'FETCH_DASHBOARD_STATS' }, (res) => {
+          if (chrome.runtime.lastError) {
+            return resolve({ success: false, error: chrome.runtime.lastError.message });
+          }
+          resolve(res || { success: false, error: 'No response from background service worker.' });
+        });
+      }),
+      new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: 'FETCH_RECENT_SOLUTIONS', limit: 10 }, (res) => {
+          if (chrome.runtime.lastError) {
+            return resolve({ success: false, error: chrome.runtime.lastError.message });
+          }
+          resolve(res || { success: false, error: 'No response from background service worker.' });
+        });
+      })
+    ]);
+
+    dashboardLoading.classList.add('hidden');
+
+    if (!statsResult || !statsResult.success || !solutionsResult || !solutionsResult.success) {
+      const errMsg = (statsResult && statsResult.error) || (solutionsResult && solutionsResult.error) || 'Failed to load dashboard data from server.';
+      if (dashboardErrorMsg) dashboardErrorMsg.textContent = errMsg;
+      dashboardError.classList.remove('hidden');
+      return;
+    }
+
+    // Render Stats
+    if (statTotalSolved) statTotalSolved.textContent = Number(statsResult.total) || 0;
+    if (statEasy) statEasy.textContent = Number(statsResult.easy) || 0;
+    if (statMedium) statMedium.textContent = Number(statsResult.medium) || 0;
+    if (statHard) statHard.textContent = Number(statsResult.hard) || 0;
+    if (statCurrentStreak) statCurrentStreak.textContent = `${Number(statsResult.currentStreak) || 0}d`;
+    if (statLongestStreak) statLongestStreak.textContent = `${Number(statsResult.longestStreak) || 0}d`;
+    if (statThisWeek) statThisWeek.textContent = Number(statsResult.thisWeek) || 0;
+
+    // Render Recent Solutions
+    const solutions = Array.isArray(solutionsResult.solutions) ? solutionsResult.solutions : [];
+    renderRecentSolutions(solutions);
+
+    dashboardContent.classList.remove('hidden');
+  } catch (err) {
+    dashboardLoading.classList.add('hidden');
+    if (dashboardErrorMsg) dashboardErrorMsg.textContent = err.message || 'Unexpected error loading dashboard.';
+    dashboardError.classList.remove('hidden');
+  }
+}
+
+/**
+ * Render List of Recent Solutions
+ */
+function renderRecentSolutions(solutions) {
+  if (!solutionList || !emptySolutionsState) return;
+  solutionList.innerHTML = '';
+
+  if (!solutions || solutions.length === 0) {
+    emptySolutionsState.classList.remove('hidden');
+    solutionList.classList.add('hidden');
+    return;
+  }
+
+  emptySolutionsState.classList.add('hidden');
+  solutionList.classList.remove('hidden');
+
+  solutions.forEach((sol) => {
+    const itemEl = document.createElement('div');
+    itemEl.className = 'solution-item';
+
+    const diff = sol.difficulty || 'Easy';
+    const diffClass = `sol-pill-${diff.toLowerCase()}`;
+    const problemNum = sol.problemNumber || '';
+    const problemTitle = escapeHtml(sol.problemTitle || 'Untitled Solution');
+    const lang = escapeHtml(sol.language || 'Code');
+    const dateStr = formatDate(sol.submittedAt || sol.createdAt);
+
+    // Commit URL with fallback to repo file path
+    const targetUrl = sol.githubCommitUrl || (sol.githubPath ? `https://github.com/${sol.githubPath}` : '');
+    const hasValidLink = Boolean(targetUrl);
+
+    itemEl.innerHTML = `
+      <div class="sol-header">
+        <div class="sol-title-wrap">
+          <span class="sol-number">#${escapeHtml(String(problemNum))}</span>
+          <span class="sol-title" title="${problemTitle}">${problemTitle}</span>
+        </div>
+        <span class="sol-pill ${diffClass}">${escapeHtml(diff)}</span>
+      </div>
+      <div class="sol-meta-row">
+        <div class="sol-meta-left">
+          <span class="sol-lang">${lang}</span>
+          <span class="sol-date">${dateStr}</span>
+        </div>
+        ${hasValidLink ? `<button type="button" class="sol-commit-btn">View Commit ↗</button>` : ''}
+      </div>
+    `;
+
+    if (hasValidLink) {
+      const commitBtn = itemEl.querySelector('.sol-commit-btn');
+      if (commitBtn) {
+        commitBtn.addEventListener('click', (e) => {
+          e.preventDefault();
+          chrome.tabs.create({ url: targetUrl });
+        });
+      }
+    }
+
+    solutionList.appendChild(itemEl);
+  });
+}
+
+/**
+ * Friendly Date Formatter
+ */
+function formatDate(isoString) {
+  if (!isoString) return 'Recent';
+  try {
+    const date = new Date(isoString);
+    if (isNaN(date.getTime())) return 'Recent';
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMins / 60);
+    const diffDays = Math.floor(diffHours / 24);
+
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    if (diffHours < 24) return `${diffHours}h ago`;
+    if (diffDays === 1) return 'Yesterday';
+    if (diffDays < 7) return `${diffDays}d ago`;
+
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch (e) {
+    return 'Recent';
+  }
+}
+
+/**
+ * HTML Escape Helper
+ */
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 /**

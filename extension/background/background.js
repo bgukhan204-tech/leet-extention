@@ -688,6 +688,81 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           break;
         }
 
+        case 'FETCH_DASHBOARD_STATS': {
+          const { jwtToken } = await chrome.storage.local.get(['jwtToken']);
+
+          if (!jwtToken) {
+            sendResponse({ success: false, error: 'GitHub account is not connected.' });
+            return;
+          }
+
+          try {
+            const res = await fetch(`${API_BASE_URL}/solutions/stats`, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${jwtToken}`,
+                'Accept': 'application/json'
+              }
+            });
+
+            if (res.status === 401) {
+              await chrome.storage.local.remove(['jwtToken', 'githubUser', 'isLoggedIn']);
+              sendResponse({
+                success: false,
+                error: 'Your authorization has expired. Please reconnect GitHub.'
+              });
+              return;
+            }
+
+            const data = await res.json();
+            sendResponse(data);
+          } catch (netErr) {
+            sendResponse({
+              success: false,
+              error: 'Backend server is unreachable. Please verify network connection.'
+            });
+          }
+          break;
+        }
+
+        case 'FETCH_RECENT_SOLUTIONS': {
+          const { jwtToken } = await chrome.storage.local.get(['jwtToken']);
+
+          if (!jwtToken) {
+            sendResponse({ success: false, error: 'GitHub account is not connected.' });
+            return;
+          }
+
+          const limit = Number(request.limit) || 10;
+          try {
+            const res = await fetch(`${API_BASE_URL}/solutions?limit=${encodeURIComponent(limit)}&page=1`, {
+              method: 'GET',
+              headers: {
+                'Authorization': `Bearer ${jwtToken}`,
+                'Accept': 'application/json'
+              }
+            });
+
+            if (res.status === 401) {
+              await chrome.storage.local.remove(['jwtToken', 'githubUser', 'isLoggedIn']);
+              sendResponse({
+                success: false,
+                error: 'Your authorization has expired. Please reconnect GitHub.'
+              });
+              return;
+            }
+
+            const data = await res.json();
+            sendResponse(data);
+          } catch (netErr) {
+            sendResponse({
+              success: false,
+              error: 'Backend server is unreachable. Please verify network connection.'
+            });
+          }
+          break;
+        }
+
         default:
           sendResponse({ success: false, error: `Unknown message type: ${request.type}` });
       }
